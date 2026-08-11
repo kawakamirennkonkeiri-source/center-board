@@ -57,6 +57,15 @@
   /* ② 午前／午後の時間帯ボタン（選択中＝青） */
   .zone-off-panel .zop-btn.slot-btn{ padding:8px 22px; font-size:15px; }
   .zone-off-panel .zop-btn.slot-btn.sel{ background:#184f95; border-color:#184f95; color:#fff; }
+  /* ① 配置図を3カラム（左＝工程/時間帯・中央＝配置図・右＝操作）に。板が大きくなりすぎないよう中央を制限。 */
+  .haichi-3col{ display:grid; grid-template-columns:210px minmax(0,1fr) 190px; gap:14px; align-items:start; margin-bottom:8px; }
+  .haichi-3col .hc-left, .haichi-3col .hc-right{ display:flex; flex-direction:column; gap:10px; }
+  .haichi-3col .hc-left .zone-off-panel{ flex-direction:column; align-items:stretch; gap:10px; margin-bottom:0; }
+  .haichi-3col .hc-center{ min-width:0; display:flex; justify-content:center; }
+  .haichi-3col .hc-center .board-photo{ max-width:900px; }
+  .haichi-3col .hc-right .action{ width:100%; text-align:center; }
+  .haichi-3col .hc-right .stat b{ color:var(--blue-deep); font-weight:800; }
+  @media(max-width:820px){ .haichi-3col{ grid-template-columns:1fr; } .haichi-3col .hc-center .board-photo{ max-width:none; } }
   .pool-region{
     position:absolute; border:1.5px dashed #b7b6ae; border-radius:10px;
     background:rgba(255,255,255,0.5);
@@ -157,29 +166,39 @@
   <div class="note">
     現場の11工程（流し・はつり・仕分け・仕分け補助・箱入れ・ピロー投入・ピロー箱入れ・真空投入・真空箱入れ・パレット・箱織／左上＝ビス置き場＝未配置置き場）を配置しています。空き枠の赤丸をタップすると、その場所に人を配置できます。名前の丸をタップすると移動・入替ができます。位置・人数の枠は仮です（ゾーン設定で調整可）。違っていたら教えてください。
   </div>
-  <div class="toolbar">
-    <button class="action" onclick="autoAssign('pattern')">🧩 自動配置（優先番号順・同番号はランダム）</button>
-    <button class="action secondary" onclick="autoAssign('random')">🎲 ランダム配置</button>
-    <button class="action ghost" onclick="clearAll()">↺ 全員を未配置に戻す</button>
-    <span class="stat">配置済み：<b id="stat-assigned">0</b> / <span id="stat-capacity">0</span> 枠　　未配置：<b id="stat-pool">0</b> 名　　本日出勤：<b id="stat-attend">0</b> 名</span><span class="save-hist" style="display:flex;gap:8px;align-items:center;margin-left:auto;flex-wrap:wrap;"><input type="hidden" id="save-ampm" value="AM"><button class="action" style="background:var(--green);" onclick="savePositionHistory()">💾 この配置を履歴に保存</button><button class="action" style="background:#184f95;" onclick="saveBoardImage()">🖼️ 画像で保存</button><span id="save-status" style="font-size:12px;color:var(--text2);"></span></span>
-  </div>
+  <!-- ① 3カラム：左＝本日の工程/時間帯　中央＝配置図　右＝操作（自動配置・画像で保存） -->
+  <div class="haichi-3col">
+    <!-- 左カラム -->
+    <div class="hc-left">
+      <!-- ② 本日の工程トグル（真空/ピロー あり・なし） -->
+      <div class="zone-off-panel" id="zone-off-panel">
+        <div class="zop-ttl">本日の工程</div>
+        <div id="zop-body"></div>
+      </div>
+      <!-- ② 時間帯（午前／午後）：押すとその時間帯の配置を表示（午前と午後は別々に記憶） -->
+      <div class="zone-off-panel slot-panel" id="slot-panel">
+        <div class="zop-ttl">時間帯</div>
+        <div class="zop-btns">
+          <button type="button" class="zop-btn slot-btn" id="btn-am" onclick="setSlot('AM')">午前</button>
+          <button type="button" class="zop-btn slot-btn" id="btn-pm" onclick="setSlot('PM')">午後</button>
+        </div>
+      </div>
+    </div>
 
-  <!-- ② 本日の工程トグル：タブ下・板の上（板の中ではない） -->
-  <div class="zone-off-panel" id="zone-off-panel">
-    <div class="zop-ttl">本日の工程</div>
-    <div id="zop-body"></div>
-  </div>
+    <!-- 中央カラム：配置図 -->
+    <div class="hc-center">
+      <div class="board-photo" id="board-photo"></div>
+    </div>
 
-  <!-- ② 時間帯（午前／午後）：本日の工程と同じ左パネル。押すとその時間帯の配置を表示（午前と午後は別々に記憶） -->
-  <div class="zone-off-panel slot-panel" id="slot-panel">
-    <div class="zop-ttl">時間帯</div>
-    <div class="zop-btns">
-      <button type="button" class="zop-btn slot-btn" id="btn-am" onclick="setSlot('AM')">午前</button>
-      <button type="button" class="zop-btn slot-btn" id="btn-pm" onclick="setSlot('PM')">午後</button>
+    <!-- 右カラム：操作 -->
+    <div class="hc-right">
+      <button class="action" onclick="autoAssign('pattern')" title="優先番号順・同番号はランダム">🧩 自動配置</button>
+      <input type="hidden" id="save-ampm" value="AM">
+      <button class="action" style="background:#184f95;" onclick="saveBoardImage()">🖼️ 画像で保存</button>
+      <span id="save-status" style="font-size:12px;color:var(--text2);"></span>
+      <div class="stat" style="font-size:12px;color:var(--text2);line-height:1.9;border-top:1px solid var(--border);padding-top:8px;margin-top:2px;">配置済み：<b id="stat-assigned">0</b> / <span id="stat-capacity">0</span> 枠<br>未配置：<b id="stat-pool">0</b> 名<br>本日出勤：<b id="stat-attend">0</b> 名</div>
     </div>
   </div>
-
-  <div class="board-photo" id="board-photo"></div>
 
   <div class="legend">
     <div><span class="dot" style="background:var(--green)"></span>配置優先の番号あり</div>
