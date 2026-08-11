@@ -491,6 +491,9 @@
   .seisan-ampm-pick .sa-btn.sel{ background:var(--blue-deep); border-color:var(--blue-deep); color:#fff;}
   .seisan-btn{ appearance:none; cursor:pointer; font-family:inherit; font-size:14px; font-weight:800; border:none; background:var(--blue); color:#fff; padding:10px 18px; border-radius:20px;}
   .seisan-btn:active{ transform:scale(0.97);}
+  .seisan-namebtns{ display:flex; gap:8px; flex-wrap:wrap;}
+  .seisan-namebtns .name-btn{ appearance:none; cursor:pointer; font-family:inherit; font-size:16px; font-weight:800; border:1.5px solid var(--blue); background:#fff; color:var(--blue-deep); padding:9px 20px; border-radius:22px;}
+  .seisan-namebtns .name-btn:active{ transform:scale(0.96); background:var(--blue); color:#fff;}
   .seisan-list{ display:grid; grid-template-columns:repeat(auto-fill, minmax(340px,1fr)); gap:14px;}
   .seisan-card{ background:var(--surface-1); border:1px solid var(--border); border-radius:14px; padding:14px 16px; display:flex; flex-direction:column; gap:10px;}
   .seisan-card .top{ display:flex; align-items:center; gap:10px;}
@@ -728,19 +731,18 @@
       </div>
 
       <div class="seisan-add">
-        <div class="lbl">生産者を登録：</div>
-        <input type="text" id="seisan-newname" class="seisan-input" placeholder="生産者名（例：田畑／庄内／岩本）" onkeydown="if(event.key==='Enter')seisanAdd()">
+        <div class="lbl">生産者を追加：</div>
         <div class="seisan-ampm-pick">
           <button type="button" class="sa-btn sel" data-ampm="AM" onclick="seisanPickAmpm('AM')">午前</button>
           <button type="button" class="sa-btn" data-ampm="PM" onclick="seisanPickAmpm('PM')">午後</button>
         </div>
-        <button class="seisan-btn" onclick="seisanAdd()">＋ 生産者を追加</button>
+        <div class="seisan-namebtns" id="seisan-namebtns"><!-- 生産者名ボタンをJSで生成 --></div>
       </div>
 
       <div id="seisan-list" class="seisan-list"><!-- 生産者カードをJSで生成 --></div>
       <div class="seisan-empty" id="seisan-empty">まだ生産者が登録されていません。上の欄に生産者名を入れて「＋ 生産者を追加」を押してください。</div>
 
-      <div class="seisan-hint">各サイズの欄に<b>持ち込み舟数</b>を入れると、<b>出来高kg＝舟数×サイズ</b>で自動計算します。ここは<b>電子黒板の実績数量には含めません</b>（生産者ごとの記録用）。記録はGoogleスプレッドシート「生産者記録」に日付ごと保存され、他のPC・翌日でも残ります。</div>
+      <div class="seisan-hint"><b>午前／午後</b>を選んでから<b>生産者のボタン</b>を押すと、その生産者のカードが追加されます。各サイズの欄に<b>持ち込み舟数</b>を入れると <b>出来高kg＝舟数×サイズ</b> を自動計算します。ここは<b>電子黒板の実績数量には含めません</b>（生産者ごとの記録用）。記録はGoogleスプレッドシート「生産者記録」に日付ごと保存され、他のPC・翌日でも残ります。</div>
     </div>
   </div><!-- /view-seisan -->
 
@@ -1062,76 +1064,151 @@
     nzSaveStore('nz_newsince', since);
   }
 
-  // 状態（未確定/確定/作成済み）の保存。キー＝実日付+取引先+区分+入数。翌日・再読込でも残る
-  let nzMemStatus = {};
-  function nzLoadStatus(){ try{ return JSON.parse(localStorage.getItem('nz_status')) || {}; }catch(e){ return nzMemStatus; } }
-  function nzSaveStatusOne(id, st){
-    if(!id) return;
-    const store = nzLoadStatus();
-    if(st === 'mikettei') delete store[id]; else store[id] = st;  // 未確定は既定なので保存しない
-    // 90日より古い日付のキーは掃除（キー先頭が yyyy/M/d）
-    const cutoff = new Date(Date.now() - 90*24*60*60*1000);
-    Object.keys(store).forEach(k => {
-      const p = k.split('|')[0].split('/');
-      if(p.length===3){ const d = new Date(p[0], p[1]-1, p[2]); if(d < cutoff) delete store[k]; }
-    });
-    try{ localStorage.setItem('nz_status', JSON.stringify(store)); }catch(e){ nzMemStatus = store; }
-  }
+  /* ===== ③ 本日荷造りの「状態・作った分・前日修正」をクラウド共有（全PCで同じ・消えない） =====
+     これまで各PCのブラウザ(localStorage)だけに保存 → 他PC/URL移行(file://→https)/キャッシュ削除で消えていた。
+     → メモリ上の NZS に集約し、GAS「本日荷造り状態」シートへ pull/push（サーバ側マージ）で全PC共有。
+     ・起動時：クラウドから読み込み → NZS に反映（localStorageより優先）。空ならこのPCのローカル分で種まき。
+     ・変更時：NZS更新＋localStorage控え＋クラウドへ“変更分だけ”送信（デバウンス）。
+     ・5分ごとに再取得して他PCの変更も反映（未送信の変更があるときは取りに行かない）。 */
+  var NZS = { status:{}, prod:{}, prevOvr:{} };
+  var _nzsLoaded = false;      // クラウド初回読み込みが済んだか
+  var _nzsDirty  = false;      // このPCで変更したがまだ送れていない
+  var _nzsSaving = false;      // 送信中
+  var _nzsTimer  = null;       // デバウンス用
+  var _nzsPatch  = { status:{}, prod:{}, prevOvr:{} };   // 未送信の変更分（貯めて一括送信）
 
-  // ③「作った分」を＝生産した実日付ごとに記録（前日作成分／本日作った分を分けるため）。
-  //   保存形＝ nz_prod = { 行キー(納品日|取引先|区分|入数): { "yyyy/M/d(生産日)": ケース数, ... } }
-  //   本日作った分＝今日の生産日エントリ／前日作成分＝それ以外(過去日)の合計。翌日・再読込でも残る。
-  let nzMemProd = {};
   function nzRowKey(o){ return o._id || (o.date + '|' + o.cust + '|' + (o.bunrui||'') + '|' + (o.nyusu||0)); }
   function nzTodayStr(){ var t = new Date(); return t.getFullYear() + '/' + (t.getMonth()+1) + '/' + t.getDate(); }
-  function nzLoadProd(){
-    var store;
-    try{ store = JSON.parse(localStorage.getItem('nz_prod')) || null; }catch(e){ store = null; }
-    if(!store){
-      store = nzMemProd && Object.keys(nzMemProd).length ? nzMemProd : {};
-      // 旧「nz_made_cs」(単一の作った分)があれば、本日の生産分として一度だけ移行
-      try{
-        var old = JSON.parse(localStorage.getItem('nz_made_cs') || 'null');
-        if(old && typeof old === 'object'){
-          var today = nzTodayStr();
-          Object.keys(old).forEach(function(k){ var c = Number(old[k])||0; if(c > 0){ store[k] = store[k] || {}; if(store[k][today] == null) store[k][today] = c; } });
-          localStorage.setItem('nz_prod', JSON.stringify(store));
-          localStorage.removeItem('nz_made_cs');
-        }
-      }catch(e){}
-    }
-    return store;
+  function nzYmd_(k){ var p = String(k).split('|')[0].split('/'); return (p.length===3) ? new Date(p[0], p[1]-1, p[2]) : null; }
+
+  // localStorage 控え（オフラインや未デプロイでも当日ぶんは残るように）
+  function nzMirrorLocal(){
+    try{ localStorage.setItem('nz_status',   JSON.stringify(NZS.status)); }catch(e){}
+    try{ localStorage.setItem('nz_prod',     JSON.stringify(NZS.prod)); }catch(e){}
+    try{ localStorage.setItem('nz_prev_ovr', JSON.stringify(NZS.prevOvr)); }catch(e){}
   }
-  function nzProdOf(key){ var m = nzLoadProd()[key]; return (m && typeof m === 'object') ? m : {}; }
-  function nzMadeToday(key){ return Number(nzProdOf(key)[nzTodayStr()]) || 0; }               // 本日作った分
+  // 起動時：まずローカル控え＋旧キーを NZS に取り込む（クラウドが使えないときのフォールバック）
+  function nzStateInitLocal(){
+    try{ NZS.status  = JSON.parse(localStorage.getItem('nz_status'))   || {}; }catch(e){ NZS.status = {}; }
+    try{ NZS.prod    = JSON.parse(localStorage.getItem('nz_prod'))     || {}; }catch(e){ NZS.prod = {}; }
+    try{ NZS.prevOvr = JSON.parse(localStorage.getItem('nz_prev_ovr')) || {}; }catch(e){ NZS.prevOvr = {}; }
+    // 旧「nz_made_cs」(単一の作った分)があれば本日の生産分として一度だけ移行
+    try{
+      var old = JSON.parse(localStorage.getItem('nz_made_cs') || 'null');
+      if(old && typeof old === 'object'){
+        var today = nzTodayStr();
+        Object.keys(old).forEach(function(k){ var c = Number(old[k])||0; if(c>0){ NZS.prod[k] = NZS.prod[k] || {}; if(NZS.prod[k][today]==null) NZS.prod[k][today]=c; } });
+        localStorage.removeItem('nz_made_cs');
+      }
+    }catch(e){}
+  }
+
+  // ---- 読み取り（すべて NZS を見る）----
+  function nzLoadStatus(){ return NZS.status; }
+  function nzLoadProd(){ return NZS.prod; }
+  function nzProdOf(key){ var m = NZS.prod[key]; return (m && typeof m === 'object') ? m : {}; }
+  function nzMadeToday(key){ return Number(nzProdOf(key)[nzTodayStr()]) || 0; }               // 本日作った分（今日の生産日ぶん）
   function nzMadeTotal(key){ var m = nzProdOf(key), s = 0; Object.keys(m).forEach(function(d){ s += Number(m[d])||0; }); return s; }
-  function nzMadePrev(key){ return nzMadeTotal(key) - nzMadeToday(key); }                      // 前日作成分（過去日の合計）
+  function nzMadePrev(key){ return nzMadeTotal(key) - nzMadeToday(key); }                      // 前日作成分（＝今日より前に作ったぶんの合計）
   function nzLoadMadeOne(key){ return nzMadeToday(key); }   // 互換：本日実績は「本日作った分」を数える
+  function nzLoadPrevOvr(){ return NZS.prevOvr; }
+  function nzPrevOverride(key){ var v = NZS.prevOvr[key]; return (typeof v === 'number' && v >= 0) ? v : null; }
+  function nzMadePrevEff(key){ var o = nzPrevOverride(key); return (o != null) ? o : nzMadePrev(key); }   // 手入力があれば優先
+
+  // ---- 掃除（古い日付キーを削除。キー先頭 = 納品日 yyyy/M/d）----
+  function nzPruneOld_(days){
+    var cutoff = new Date(Date.now() - days*24*60*60*1000);
+    ['status','prevOvr','prod'].forEach(function(sec){
+      Object.keys(NZS[sec]).forEach(function(k){ var d = nzYmd_(k); if(d && d < cutoff) delete NZS[sec][k]; });
+    });
+  }
+
+  // ---- 書き込み（NZS更新＋localStorage控え＋クラウドへ“変更分だけ”送信）----
+  function nzSaveStatusOne(id, st){
+    if(!id) return;
+    if(st === 'mikettei') delete NZS.status[id]; else NZS.status[id] = st;  // 未確定は既定なので保存しない
+    _nzsPatch.status[id] = (st === 'mikettei') ? null : st;
+    nzPruneOld_(90); nzMirrorLocal(); nzStateScheduleSave();
+  }
   function nzSetMadeToday(key, cs){
     if(!key) return;
-    var store = nzLoadProd();
-    var m = store[key] || {}; var today = nzTodayStr();
+    var m = NZS.prod[key] || {}; var today = nzTodayStr();
     if(!cs || cs <= 0) delete m[today]; else m[today] = cs;
-    if(Object.keys(m).length) store[key] = m; else delete store[key];
-    var cutoff = new Date(Date.now() - 120*24*60*60*1000);   // 120日より古い納品日キーは掃除
-    Object.keys(store).forEach(function(k){ var p = k.split('|')[0].split('/'); if(p.length===3){ var d = new Date(p[0], p[1]-1, p[2]); if(d < cutoff) delete store[k]; } });
-    try{ localStorage.setItem('nz_prod', JSON.stringify(store)); }catch(e){ nzMemProd = store; }
+    if(Object.keys(m).length) NZS.prod[key] = m; else delete NZS.prod[key];
+    _nzsPatch.prod[key] = _nzsPatch.prod[key] || {}; _nzsPatch.prod[key][today] = (!cs||cs<=0) ? 0 : cs;
+    nzPruneOld_(120); nzMirrorLocal(); nzStateScheduleSave();
   }
-  // 前日作成分は基本「過去日の生産合計」から自動。ただし念のため手入力で上書き(修正)できる（nz_prev_ovr）。
-  //   ・本日実績には影響しない（本日実績＝本日作った分のみ）。のこり計算と表示にだけ効く。
-  let nzMemPrevOvr = {};
-  function nzLoadPrevOvr(){ try{ return JSON.parse(localStorage.getItem('nz_prev_ovr')) || {}; }catch(e){ return nzMemPrevOvr; } }
-  function nzPrevOverride(key){ var v = nzLoadPrevOvr()[key]; return (typeof v === 'number' && v >= 0) ? v : null; }
-  function nzMadePrevEff(key){ var o = nzPrevOverride(key); return (o != null) ? o : nzMadePrev(key); }   // 手入力があれば優先
   function nzSetPrevOverride(key, cs){
     if(!key) return;
-    var store = nzLoadPrevOvr();
     var auto = nzMadePrev(key);
-    if(cs == null || cs === auto) delete store[key];   // 自動値と同じ/未設定なら上書き解除＝自動に戻す
-    else store[key] = cs;
-    var cutoff = new Date(Date.now() - 120*24*60*60*1000);
-    Object.keys(store).forEach(function(k){ var p = k.split('|')[0].split('/'); if(p.length===3){ var d = new Date(p[0], p[1]-1, p[2]); if(d < cutoff) delete store[k]; } });
-    try{ localStorage.setItem('nz_prev_ovr', JSON.stringify(store)); }catch(e){ nzMemPrevOvr = store; }
+    if(cs == null || cs === auto){ delete NZS.prevOvr[key]; _nzsPatch.prevOvr[key] = null; }   // 自動値と同じ/未設定＝自動に戻す
+    else { NZS.prevOvr[key] = cs; _nzsPatch.prevOvr[key] = cs; }
+    nzPruneOld_(120); nzMirrorLocal(); nzStateScheduleSave();
+  }
+
+  // ---- クラウド同期（保存はfetch POST・取得はJSONP。※httpsなのでfetchが使える）----
+  function nzPatchEmpty_(){ return !Object.keys(_nzsPatch.status).length && !Object.keys(_nzsPatch.prod).length && !Object.keys(_nzsPatch.prevOvr).length; }
+  function nzStateScheduleSave(){
+    if(!CENTER_ENDPOINT) return;      // 未接続ならローカル控えのみ
+    if(!_nzsLoaded) return;           // クラウド未読込のうちは送らない（種まきはpull側で判定）
+    _nzsDirty = true;
+    if(_nzsTimer) clearTimeout(_nzsTimer);
+    _nzsTimer = setTimeout(nzStateSaveCloud, 1200);
+  }
+  function nzStateSaveCloud(){
+    if(!CENTER_ENDPOINT || nzPatchEmpty_()){ _nzsDirty = false; return; }
+    if(_nzsSaving){ if(_nzsTimer) clearTimeout(_nzsTimer); _nzsTimer = setTimeout(nzStateSaveCloud, 800); return; }
+    _nzsSaving = true;
+    var patch = _nzsPatch;
+    _nzsPatch = { status:{}, prod:{}, prevOvr:{} };   // 送る分を切り出し、以後の変更は次回へ
+    fetch(CENTER_ENDPOINT, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ action:'nizukuriStateSave', patch: patch, by: '電子黒板' }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        _nzsSaving = false;
+        if(d && d.ok){ _nzsDirty = !nzPatchEmpty_(); if(_nzsDirty) nzStateScheduleSave(); }
+        else { nzPatchMergeBack_(patch); _nzsDirty = true; setTimeout(nzStateSaveCloud, 1500); }   // 失敗→戻して再送
+      })
+      .catch(function(){ _nzsSaving = false; nzPatchMergeBack_(patch); _nzsDirty = true; setTimeout(nzStateSaveCloud, 3000); });
+  }
+  // 送信失敗した変更分を未送信バッファへ戻す（新しい変更は上書きしないよう既存優先）
+  function nzPatchMergeBack_(p){
+    Object.keys(p.status).forEach(function(k){ if(!(k in _nzsPatch.status)) _nzsPatch.status[k] = p.status[k]; });
+    Object.keys(p.prevOvr).forEach(function(k){ if(!(k in _nzsPatch.prevOvr)) _nzsPatch.prevOvr[k] = p.prevOvr[k]; });
+    Object.keys(p.prod).forEach(function(k){ _nzsPatch.prod[k] = _nzsPatch.prod[k] || {}; Object.keys(p.prod[k]).forEach(function(dd){ if(!(dd in _nzsPatch.prod[k])) _nzsPatch.prod[k][dd] = p.prod[k][dd]; }); });
+  }
+  // クラウドから読み込み → NZS を置き換え。cb は必ず呼ぶ（成功/失敗/スキップ問わず後続の nzLoadLive を回す）
+  function nzStatePull(cb){
+    cb = cb || function(){};
+    if(!CENTER_ENDPOINT){ _nzsLoaded = true; cb(); return; }
+    if(_nzsSaving || _nzsDirty){ cb(); return; }   // 未送信の変更があるうちは取りに行かない（自分の変更を潰さない）
+    var cbn = 'nzsCb_' + Date.now();
+    var s = document.createElement('script'); var done = false;
+    // 遅れて届いたJSONPで ReferenceError にならないよう、諦めた後もコールバックは no-op で残す
+    var timer = setTimeout(function(){ if(!done){ done = true; _nzsLoaded = true; window[cbn] = function(){}; s.remove(); cb(); } }, 8000);
+    window[cbn] = function(d){
+      if(done){ return; }
+      done = true; clearTimeout(timer); _nzsLoaded = true;
+      try{
+        if(d && !d.error){
+          if(d.json){
+            var obj = JSON.parse(d.json) || {};
+            NZS.status  = obj.status  || {};
+            NZS.prod    = obj.prod    || {};
+            NZS.prevOvr = obj.prevOvr || {};
+            nzMirrorLocal();
+          } else if(Object.keys(NZS.status).length || Object.keys(NZS.prod).length || Object.keys(NZS.prevOvr).length){
+            // クラウドが空＝このPCが最初 → 手元のローカル分を種まきで送る
+            _nzsPatch = { status:Object.assign({}, NZS.status), prod:JSON.parse(JSON.stringify(NZS.prod)), prevOvr:Object.assign({}, NZS.prevOvr) };
+            _nzsDirty = true; setTimeout(nzStateSaveCloud, 300);
+          }
+        }
+      }catch(e){}
+      window[cbn] = function(){}; s.remove(); cb();
+    };
+    s.src = CENTER_ENDPOINT + (CENTER_ENDPOINT.indexOf('?')>=0?'&':'?') + 'type=nizukuriStateGet&callback=' + cbn;
+    s.onerror = function(){ if(!done){ done = true; clearTimeout(timer); _nzsLoaded = true; window[cbn] = function(){}; s.remove(); cb(); } };
+    document.head.appendChild(s);
   }
 
   // GAS(センター連携 ?type=nizukuri)から取得（JSONP）
@@ -1213,8 +1290,11 @@
     nzRender();
   }
 
-  window.addEventListener('DOMContentLoaded', nzLoadLive);
-  setInterval(function(){ if(CENTER_ENDPOINT) nzLoadLive(); }, 5*60*1000);
+  // 起動：ローカル控えを読む → クラウドの状態を取得 → 荷造り一覧を表示（状態・作った分が反映された状態で描画）
+  function nzBootstrap(){ nzStateInitLocal(); nzStatePull(function(){ nzLoadLive(); }); }
+  window.addEventListener('DOMContentLoaded', nzBootstrap);
+  // 5分ごと：他PCの状態変更も取り込んでから再表示（未送信の変更があるときは取りに行かない）
+  setInterval(function(){ if(CENTER_ENDPOINT){ nzStatePull(function(){ nzLoadLive(); }); } }, 5*60*1000);
 
   /* ===== ⑥ 圃場（畑）から持ってきた舟数の記録 ===== */
   // 「今日の圃場」を手入力で登録 → 各圃場ごとに ＋舟 でカウント（時間は記録しない）。
@@ -1339,6 +1419,7 @@
   // 保存＝GAS（POST action=seisanSave／GET type=seisanGet）でスプレッドシート「生産者記録」に日付ごと。ローカルにも控える。
   var SEISAN = { date:'', list:[] };   // list:[{name, ampm:'AM'|'PM', rows:{sizeKey:funes}}]
   var SEISAN_AMPM = 'AM';              // 追加時に選ぶ時間帯
+  var SEISAN_NAMES = ['田畑','庄内','村川','岩本','坂田'];   // ⑤ 生産者は決まっているのでボタンで選ぶ
   var SEISAN_SIZES = [
     { grp:'洗い', kg:3.34, label:'3.34㎏' },
     { grp:'洗い', kg:2,    label:'2㎏' },
@@ -1346,9 +1427,12 @@
     { grp:'洗い', kg:10,   label:'10㎏' },
     { grp:'土',   kg:2,    label:'2㎏' },
     { grp:'土',   kg:5,    label:'5㎏' },
-    { grp:'土',   kg:10,   label:'10㎏' }
+    { grp:'土',   kg:10,   label:'10㎏' },
+    // ④ C・S は㎏で直接入力（舟数×サイズではなく、入れた数字がそのまま㎏）。舟数合計には含めず、出来高kgには含める。
+    { grp:'kg直接', label:'C', key:'C|1', kg:1, kgDirect:true },
+    { grp:'kg直接', label:'S', key:'S|1', kg:1, kgDirect:true }
   ];
-  function seisanSizeKey(s){ return s.grp + '|' + s.kg; }
+  function seisanSizeKey(s){ return s.key || (s.grp + '|' + s.kg); }
   function seisanTodayStr(){ var t=new Date(); return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); }
   function seisanLocalKey(){ return 'seisan_' + SEISAN.date; }
   function seisanLoadLocal(){ try{ var o=JSON.parse(localStorage.getItem(seisanLocalKey())); if(o&&Array.isArray(o.list)) SEISAN.list=o.list; }catch(e){} }
@@ -1361,10 +1445,35 @@
     if(seisanInited) return; seisanInited=true;
     SEISAN.date = seisanTodayStr();
     var lbl=document.getElementById('seisan-date-label'); if(lbl) lbl.textContent='（'+SEISAN.date+'）';
+    seisanRenderNameBtns();
     seisanLoadLocal();
     seisanLoadLive();
   }
   function seisanOnOpen(){ seisanInit(); seisanRender(); }
+  // ⑤ 生産者名ボタンを生成（決まった5名）。押すと、選択中の時間帯でその生産者を追加。
+  function seisanRenderNameBtns(){
+    var box=document.getElementById('seisan-namebtns'); if(!box) return;
+    box.innerHTML='';
+    SEISAN_NAMES.forEach(function(nm){
+      var b=document.createElement('button'); b.type='button'; b.className='name-btn'; b.textContent=nm;
+      b.onclick=function(){ seisanAddName(nm); };
+      box.appendChild(b);
+    });
+  }
+  function seisanAddName(nm){
+    nm=String(nm||'').trim(); if(!nm) return;
+    // 同じ生産者×同じ時間帯が既にあれば重複させず、そのカードへスクロール
+    var exist=-1;
+    for(var i=0;i<SEISAN.list.length;i++){ if(SEISAN.list[i].name===nm && SEISAN.list[i].ampm===SEISAN_AMPM){ exist=i; break; } }
+    if(exist>=0){
+      var cards=document.querySelectorAll('.seisan-card');
+      if(cards[exist]){ cards[exist].scrollIntoView({behavior:'smooth', block:'center'}); cards[exist].style.transition='box-shadow .2s'; cards[exist].style.boxShadow='0 0 0 3px var(--blue)'; setTimeout(function(){ cards[exist].style.boxShadow=''; },900); }
+      seisanSetStatus('「'+nm+'（'+(SEISAN_AMPM==='PM'?'午後':'午前')+'）」は既に登録済みです','#a76a00');
+      return;
+    }
+    SEISAN.list.push({ name:nm, ampm:SEISAN_AMPM, rows:{} });
+    seisanRender(); seisanPushSave();
+  }
 
   function seisanPickAmpm(v){
     SEISAN_AMPM = (v==='PM'?'PM':'AM');
@@ -1377,7 +1486,7 @@
     inp.value=''; inp.focus();
     seisanRender(); seisanPushSave();
   }
-  function seisanFunesOf(p){ var s=0; SEISAN_SIZES.forEach(function(sz){ s += Number(p.rows[seisanSizeKey(sz)])||0; }); return s; }
+  function seisanFunesOf(p){ var s=0; SEISAN_SIZES.forEach(function(sz){ if(sz.kgDirect) return; s += Number(p.rows[seisanSizeKey(sz)])||0; }); return s; }   // ④ C/S(㎏直接)は舟数に含めない
   function seisanKgOf(p){ var s=0; SEISAN_SIZES.forEach(function(sz){ s += (Number(p.rows[seisanSizeKey(sz)])||0)*sz.kg; }); return s; }
   function seisanDel(i){
     var p=SEISAN.list[i]; if(!p) return;
@@ -1388,7 +1497,9 @@
   }
   function seisanSetCell(i, key, val){
     var p=SEISAN.list[i]; if(!p) return;
-    var v=Math.max(0, Math.round(Number(val)||0));
+    var kgDirect=false; for(var z=0;z<SEISAN_SIZES.length;z++){ if(seisanSizeKey(SEISAN_SIZES[z])===key){ kgDirect=!!SEISAN_SIZES[z].kgDirect; break; } }
+    var num=Number(val)||0;
+    var v = kgDirect ? Math.max(0, Math.round(num*10)/10) : Math.max(0, Math.round(num));   // C/S は0.1kg単位、舟数は整数
     if(v>0) p.rows[key]=v; else delete p.rows[key];
     seisanRenderTotals(); seisanPushSave();
   }
@@ -1419,11 +1530,17 @@
       html+='<div class="seisan-grid">';
       var lastGrp='';
       SEISAN_SIZES.forEach(function(sz){
-        if(sz.grp!==lastGrp){ html+='<div class="seisan-grp-h">'+(sz.grp==='土'?'土付き':sz.grp)+'</div>'; lastGrp=sz.grp; }
+        if(sz.grp!==lastGrp){ html+='<div class="seisan-grp-h">'+(sz.grp==='土'?'土付き':(sz.grp==='kg直接'?'㎏で直接入力（C／S）':sz.grp))+'</div>'; lastGrp=sz.grp; }
         var key=seisanSizeKey(sz); var f=Number(p.rows[key])||0;
-        html+='<div class="seisan-size" data-key="'+key+'"><span class="sz">'+sz.label+'</span>'+
-              '<input type="number" min="0" step="1" inputmode="numeric" value="'+(f||'')+'" placeholder="0"><span class="u">舟</span>'+
-              '<span class="kg">'+(f? seisanFmtKg(f*sz.kg)+'kg':'')+'</span></div>';
+        if(sz.kgDirect){
+          // ④ C・S：舟数ではなく㎏を直接入力（そのまま出来高kgに加算）
+          html+='<div class="seisan-size" data-key="'+key+'"><span class="sz">'+sz.label+'</span>'+
+                '<input type="number" min="0" step="0.1" inputmode="decimal" value="'+(f||'')+'" placeholder="0"><span class="u">kg</span></div>';
+        } else {
+          html+='<div class="seisan-size" data-key="'+key+'"><span class="sz">'+sz.label+'</span>'+
+                '<input type="number" min="0" step="1" inputmode="numeric" value="'+(f||'')+'" placeholder="0"><span class="u">舟</span>'+
+                '<span class="kg">'+(f? seisanFmtKg(f*sz.kg)+'kg':'')+'</span></div>';
+        }
       });
       html+='</div>';
       html+='<div class="cardtot">舟数 <b class="ct-funes">'+seisanFunesOf(p)+'</b>　出来高 <b class="ct-kg">'+seisanFmtKg(seisanKgOf(p))+'</b>kg</div>';
@@ -1639,7 +1756,7 @@
     fetch(CENTER_ENDPOINT, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify({ action:'savePositionImg', img:dataUrl })})
       .then(function(r){ return r.json(); })
-      .then(function(d){ reply({ ok:!!(d&&d.ok), name:(d&&d.name)||'', url:(d&&d.url)||'', error:(d&&d.error)||'' }); })
+      .then(function(d){ reply({ ok:!!(d&&d.ok), name:(d&&d.name)||'', url:(d&&d.url)||'', folderUrl:(d&&d.folderUrl)||'', error:(d&&d.error)||'' }); })
       .catch(function(err){ reply({ ok:false, error:String(err) }); });
   }
   // 左「シフト（本日出勤）」カードを、配置図が返してきた出勤数＋ゾーン別人数で更新

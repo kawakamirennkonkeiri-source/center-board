@@ -158,7 +158,7 @@
     <button class="action" onclick="autoAssign('pattern')">🧩 自動配置（優先番号順・同番号はランダム）</button>
     <button class="action secondary" onclick="autoAssign('random')">🎲 ランダム配置</button>
     <button class="action ghost" onclick="clearAll()">↺ 全員を未配置に戻す</button>
-    <span class="stat">配置済み：<b id="stat-assigned">0</b> / <span id="stat-capacity">0</span> 枠　　未配置：<b id="stat-pool">0</b> 名　　本日出勤：<b id="stat-attend">0</b> 名</span><span class="save-hist" style="display:flex;gap:8px;align-items:center;margin-left:auto;flex-wrap:wrap;"><label style="font-size:12px;color:var(--text2);">時間帯 <select id="save-ampm" style="padding:5px;border-radius:5px;border:1px solid var(--grid);font-size:13px;"><option value="AM">午前(AM)</option><option value="PM">午後(PM)</option></select></label><button class="action" style="background:var(--green);" onclick="savePositionHistory()">💾 この配置を履歴に保存</button><button class="action" style="background:#184f95;" onclick="saveBoardImage()">🖼️ 画像で保存</button><span id="save-status" style="font-size:12px;color:var(--text2);"></span></span>
+    <span class="stat">配置済み：<b id="stat-assigned">0</b> / <span id="stat-capacity">0</span> 枠　　未配置：<b id="stat-pool">0</b> 名　　本日出勤：<b id="stat-attend">0</b> 名</span><span class="save-hist" style="display:flex;gap:8px;align-items:center;margin-left:auto;flex-wrap:wrap;"><span style="font-size:12px;color:var(--text2);display:inline-flex;align-items:center;gap:6px;">時間帯<span class="ampm-toggle" style="display:inline-flex;border:1px solid var(--grid);border-radius:7px;overflow:hidden;"><button type="button" id="btn-am" onclick="setSlot('AM')" style="border:0;padding:5px 14px;font-size:13px;font-weight:800;cursor:pointer;">午前</button><button type="button" id="btn-pm" onclick="setSlot('PM')" style="border:0;border-left:1px solid var(--grid);padding:5px 14px;font-size:13px;font-weight:800;cursor:pointer;">午後</button></span></span><input type="hidden" id="save-ampm" value="AM"><button class="action" style="background:var(--green);" onclick="savePositionHistory()">💾 この配置を履歴に保存</button><button class="action" style="background:#184f95;" onclick="saveBoardImage()">🖼️ 画像で保存</button><span id="save-status" style="font-size:12px;color:var(--text2);"></span></span>
   </div>
 
   <!-- ② 本日の工程トグル：タブ下・板の上（板の中ではない） -->
@@ -571,12 +571,73 @@ function togglePin(wid){
   closeModal(); renderBoard();
 }
 function toggleAttend(wid){
-  worker(wid).attend = document.getElementById('mv-attend').checked;
-  if(!worker(wid).attend) removeFromAllZones(wid);
-  renderBoard();
+  setWorkerAttend(wid, document.getElementById('mv-attend').checked);
 }
 function removeFromAllZones(wid){
   ZONES.forEach(z=>{ assignment[z.id] = assignment[z.id].filter(id=>id!==wid); });
+}
+
+/* ===================== ② 午前／午後（時間帯）トグル =====================
+   午前休・午後休のアルバイトさんを、その時間帯だけ自動配置から外す。
+   ・出勤するかどうかの“素”は w._baseAttend（シフト＝〇/欠、または手動チェック）に持つ。
+   ・実際に配置対象にするか（w.attend）＝ _baseAttend かつ「今の時間帯に休みでない」。
+   ・午前を選ぶと『午前休』の人を外す／午後を選ぶと『午後休』の人を外す。半休(午前休/午後休)以外は両方出勤。 */
+var CUR_SLOT = 'AM';
+function slotOff_(w){
+  var s = String(w && w.shiftStatus || '').trim(); if(!s) return false;
+  // 「午前休」＝午前は休み（午後は出勤） ／「午後休」＝午後は休み（午前は出勤）
+  var offAM = s.indexOf('午前休') >= 0 || (s.indexOf('午前') >= 0 && s.indexOf('休') >= 0);
+  var offPM = s.indexOf('午後休') >= 0 || (s.indexOf('午後') >= 0 && s.indexOf('休') >= 0);
+  return (CUR_SLOT === 'AM') ? offAM : offPM;
+}
+// 全員の w.attend を「素の出勤 × 今の時間帯に休みでない」で計算し直す
+function applySlotAttend_(){
+  workers.forEach(function(w){
+    if(w._baseAttend === undefined) w._baseAttend = w.attend;   // 初回はいまの値を素とみなす
+    w.attend = !!w._baseAttend && !slotOff_(w);
+  });
+}
+// 出勤チェックの切り替えは“素の出勤”を更新→時間帯を加味して反映（1か所に集約）
+function setWorkerAttend(wid, on){
+  var w = worker(wid); if(!w) return;
+  w._baseAttend = !!on;
+  w.attend = w._baseAttend && !slotOff_(w);
+  if(!w.attend) removeFromAllZones(wid);
+  renderBoard();
+  postCenterResult_();
+}
+// 午前／午後ボタン：押した時間帯の配置を表示する（真空/ピローのトグルと同じ操作感）
+//   ・切替前に「今の時間帯」の配置を控える → 別の時間帯へ切替 → その時間帯の保存済み配置を復元（無ければ自動配置）。
+//   ・午前と午後は別々に記憶されるので、行き来しても互いの配置は崩れない。
+function setSlot(slot){
+  var next = (slot === 'PM') ? 'PM' : 'AM';
+  if(next === CUR_SLOT){ paintSlotButtons_(); return; }
+  _slotLayouts[CUR_SLOT] = currentLayoutByName();   // 今の時間帯の配置を控える
+  CUR_SLOT = next;
+  var hid = document.getElementById('save-ampm'); if(hid) hid.value = CUR_SLOT;
+  paintSlotButtons_();
+  applySlotAttend_();                                // 新しい時間帯の出勤（午前休/午後休を差し引く）
+  ZONES.forEach(function(z){ assignment[z.id] = []; });   // いったん全部おろす
+  // 固定(⭐)の出勤者を先に戻す
+  workers.forEach(function(w){
+    if(w.attend && pinned[w.id]){
+      for(var k=0;k<ZONES.length;k++){ var z=ZONES[k]; if(z.id===pinned[w.id]){ if(assignment[z.id].indexOf(w.id)<0 && assignment[z.id].length<capacityOf(z)) assignment[z.id].push(w.id); break; } }
+    }
+  });
+  var sl = _slotLayouts[CUR_SLOT];
+  var has = sl && Object.keys(sl).some(function(k){ return sl[k] && sl[k].length; });
+  if(has){ applyLayoutByName(sl); if(typeof placeFreshNextToVets_==='function') placeFreshNextToVets_(); }   // その時間帯の保存済み配置を復元
+  else { try{ autoAssign('pattern'); }catch(_e){} }                                                          // 初めての時間帯は自動配置
+  workers.forEach(function(w){ if(!w.attend) removeFromAllZones(w.id); });   // その時間帯に休みの人は未配置へ
+  renderBoard();
+  try{ if(typeof saveLayout === 'function') saveLayout(); }catch(_e){}
+  postCenterResult_();
+}
+function paintSlotButtons_(){
+  var ba = document.getElementById('btn-am'), bp = document.getElementById('btn-pm');
+  var on = 'background:var(--green);color:#fff;', off = 'background:#fff;color:var(--text2);';
+  if(ba) ba.style.cssText = 'border:0;padding:5px 14px;font-size:13px;font-weight:800;cursor:pointer;' + (CUR_SLOT==='AM'?on:off);
+  if(bp) bp.style.cssText = 'border:0;border-left:1px solid var(--grid);padding:5px 14px;font-size:13px;font-weight:800;cursor:pointer;' + (CUR_SLOT==='PM'?on:off);
 }
 
 /* ===================== 自動配置 / ランダム配置 =====================
@@ -621,7 +682,7 @@ function renderSkillTable(){
   const table = document.getElementById('skill-table');
   let html = '<thead><tr><th>出勤（シフト）</th><th class="name">氏名</th>' + ZONES.map(z=>`<th>${z.label.replace('（はつり）','')}</th>`).join('') + '</tr></thead><tbody>';
   workers.forEach(w=>{
-    html += `<tr><td class="att-cell"><label><input type="checkbox" class="att-toggle" ${w.attend?'checked':''} onchange="workers.find(x=>x.id==='${w.id}').attend=this.checked; if(!this.checked) removeFromAllZones('${w.id}');">${shiftBadgeHtml(w)}</label></td>`;
+    html += `<tr><td class="att-cell"><label><input type="checkbox" class="att-toggle" ${w.attend?'checked':''} onchange="setWorkerAttend('${w.id}', this.checked)">${shiftBadgeHtml(w)}</label></td>`;
     html += `<td class="name">${w.name}</td>`;
     ZONES.forEach(z=>{
       const v = prioRaw(w.id, z.skill);
@@ -809,6 +870,7 @@ function applyPrioByName_(saved){
 // ===== 手動配置の保存/復元（自動更新や開き直しで手動配置が消えないように） =====
 var _restoringLayout = false;
 var _liveReceived = false;   // 実データ受信前（初期サンプルautoAssign）は保存しない＝保存済み配置を潰さない
+var _slotLayouts = { AM:null, PM:null };   // ② 午前/午後それぞれの配置を別々に記憶（押した時間帯の配置を表示）
 // 今の配置を {ゾーンID:[氏名,...]} で返す（並び順も保持）
 function currentLayoutByName(){
   var layout = {};
@@ -818,8 +880,10 @@ function currentLayoutByName(){
 // 変更のたびに親（電子黒板）へ送ってブラウザ保存 → 更新・開き直しでも維持
 function saveLayout(){
   if(_restoringLayout || !_liveReceived) return;
+  _slotLayouts[CUR_SLOT] = currentLayoutByName();   // ② 今の時間帯（午前/午後）の配置を控える
   if(!(window.parent && window.parent !== window)) return;
-  try{ window.parent.postMessage({ type:'centerLayout', layout: currentLayoutByName() }, '*'); }catch(e){}
+  // 午前・午後の両方をまとめて親（電子黒板）へ保存＝更新・開き直し・他PCでも各時間帯の配置が残る
+  try{ window.parent.postMessage({ type:'centerLayout', layout: { __ampm:true, AM:_slotLayouts.AM, PM:_slotLayouts.PM } }, '*'); }catch(e){}
 }
 // 保存された配置（氏名ベース）を、出勤者だけ・保存順で復元（欠勤/不在名は無視）
 function applyLayoutByName(layout){
@@ -878,6 +942,9 @@ function applyLiveData(payload){
         w.shiftStatus = found;
       });
     }
+    // ② シフト＝“素の出勤”を確定し、選択中の時間帯（午前/午後）の半休を差し引いて w.attend を決める
+    workers.forEach(function(w){ w._baseAttend = w.attend; });
+    applySlotAttend_();
     // 固定ゾーンの出勤者を先にそのゾーンへ置く（autoAssignがpinnedを保持し、残りを埋める）
     workers.forEach(function(w){
       if(w.attend && pinned[w.id]){
@@ -885,11 +952,16 @@ function applyLiveData(payload){
         if(z && assignment[z.id].indexOf(w.id) < 0 && assignment[z.id].length < capacityOf(z)) assignment[z.id].push(w.id);
       }
     });
-    // 保存された手動配置があればそれを復元、無ければ自動配置（初回のみ）
-    var _savedLayout = payload && payload.layout;
+    // ② 保存された手動配置は午前/午後を別々に持つ（{__ampm,AM,PM}）。旧形式(フラット)は現在の時間帯として取り込む。
+    var _rawLayout = payload && payload.layout;
+    if(_rawLayout && _rawLayout.__ampm){ _slotLayouts = { AM:_rawLayout.AM || null, PM:_rawLayout.PM || null }; }
+    else if(_rawLayout && Object.keys(_rawLayout).length){ _slotLayouts[CUR_SLOT] = _rawLayout; }
+    var _savedLayout = _slotLayouts[CUR_SLOT];   // 今の時間帯の配置を復元
     var _hasLayout = _savedLayout && Object.keys(_savedLayout).some(function(k){ return _savedLayout[k] && _savedLayout[k].length; });
     if(_hasLayout){ applyLayoutByName(_savedLayout); placeFreshNextToVets_(); }   // 復元＋新しい人だけコンベアへ
     else { autoAssign('pattern'); }   // autoAssignの先頭で新人先取り→内部でrenderBoard
+    // ② 選択中の時間帯に休みの人（午前休/午後休）が復元配置に含まれていたら未配置へ戻す
+    workers.forEach(function(w){ if(!w.attend) removeFromAllZones(w.id); });
     renderBoard();
     if(document.getElementById('panel-skill') && document.getElementById('panel-skill').classList.contains('active')) renderSkillTable();
     if(typeof fitBoardPhoto === 'function') setTimeout(fitBoardPhoto, 30);
@@ -950,7 +1022,15 @@ window.addEventListener('message', function(e){
   else if(e.data.type === 'centerSaveImageResult'){
     var st2 = document.getElementById('save-status');
     if(st2){
-      if(e.data.ok){ st2.textContent = '✓ 画像を保存しました（' + (e.data.name||'') + '）'; st2.style.color = 'var(--green)'; }
+      if(e.data.ok){
+        // 「保存しました」だけだとDriveのどこに入ったか分からず「保存できていない」と誤解される。
+        // 実際に保存されたファイル／フォルダを開くリンクを出して、迷わずたどり着けるようにする。
+        var lk = 'color:#184f95;font-weight:700;text-decoration:underline;';
+        var html = '✓ 画像を保存しました（' + (e.data.name||'') + '）';
+        if(e.data.url)       html += ' 　<a href="' + e.data.url + '" target="_blank" rel="noopener" style="' + lk + '">画像を開く</a>';
+        if(e.data.folderUrl) html += ' 　<a href="' + e.data.folderUrl + '" target="_blank" rel="noopener" style="' + lk + '">保存先フォルダを開く</a>';
+        st2.innerHTML = html; st2.style.color = 'var(--green)';
+      }
       else { st2.textContent = '画像の保存に失敗' + (e.data.error ? '：' + e.data.error : ''); st2.style.color = 'var(--red)'; }
     }
   }
@@ -1110,8 +1190,12 @@ function dragDropTo(wid, zoneId, idx){
   }
   renderBoard();
 }
-// 時間帯セレクトの初期値を現在時刻で（12時以降ならPM）
-try{ var _sa = document.getElementById('save-ampm'); if(_sa && new Date().getHours() >= 12) _sa.value = 'PM'; }catch(e){}
+// 時間帯トグルの初期値を現在時刻で（12時以降なら午後）。ボタンの色も合わせる。
+try{
+  CUR_SLOT = (new Date().getHours() >= 12) ? 'PM' : 'AM';
+  var _sa = document.getElementById('save-ampm'); if(_sa) _sa.value = CUR_SLOT;
+  if(typeof paintSlotButtons_ === 'function') paintSlotButtons_();
+}catch(e){}
 try{ if(window.parent && window.parent !== window) window.parent.postMessage({type:'centerReady'}, '*'); }catch(e){}
 
 
