@@ -762,10 +762,12 @@
   });
 
   // ① 全画面の配置図ツールは「配置図」タブを初めて開いたときに読み込む（遅延ロード）
+  //   ★外部ファイル haichi.html を直接読み込む＝haichi.html を直せば電子黒板の「配置図」タブにも常に反映される。
+  //     （以前は LAYOUT_FULL_B64 に埋め込んだ古いコピーを表示していたため、haichi.html の変更が反映されなかった）
   let fullFrameLoaded = false;
   function ensureFullFrame(){
     if(!fullFrameLoaded){
-      document.getElementById('layout-full-frame').srcdoc = b64ToUtf8(LAYOUT_FULL_B64);
+      document.getElementById('layout-full-frame').src = 'haichi.html';
       fullFrameLoaded = true;
     }
   }
