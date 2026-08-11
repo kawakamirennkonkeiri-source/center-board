@@ -54,6 +54,9 @@
   .zone-off-panel .zop-btn{ appearance:none; cursor:pointer; font-family:inherit; font-size:13px; font-weight:800; border:2px solid #cfd4dc; background:#fff; color:#6b6b6b; padding:6px 14px; border-radius:8px; }
   .zone-off-panel .zop-btn.on.sel{ background:#0ca30c; border-color:#0ca30c; color:#fff; }
   .zone-off-panel .zop-btn.off.sel{ background:#d03b3b; border-color:#d03b3b; color:#fff; }
+  /* ② 午前／午後の時間帯ボタン（選択中＝青） */
+  .zone-off-panel .zop-btn.slot-btn{ padding:8px 22px; font-size:15px; }
+  .zone-off-panel .zop-btn.slot-btn.sel{ background:#184f95; border-color:#184f95; color:#fff; }
   .pool-region{
     position:absolute; border:1.5px dashed #b7b6ae; border-radius:10px;
     background:rgba(255,255,255,0.5);
@@ -158,13 +161,22 @@
     <button class="action" onclick="autoAssign('pattern')">🧩 自動配置（優先番号順・同番号はランダム）</button>
     <button class="action secondary" onclick="autoAssign('random')">🎲 ランダム配置</button>
     <button class="action ghost" onclick="clearAll()">↺ 全員を未配置に戻す</button>
-    <span class="stat">配置済み：<b id="stat-assigned">0</b> / <span id="stat-capacity">0</span> 枠　　未配置：<b id="stat-pool">0</b> 名　　本日出勤：<b id="stat-attend">0</b> 名</span><span class="save-hist" style="display:flex;gap:8px;align-items:center;margin-left:auto;flex-wrap:wrap;"><span style="font-size:12px;color:var(--text2);display:inline-flex;align-items:center;gap:6px;">時間帯<span class="ampm-toggle" style="display:inline-flex;border:1px solid var(--grid);border-radius:7px;overflow:hidden;"><button type="button" id="btn-am" onclick="setSlot('AM')" style="border:0;padding:5px 14px;font-size:13px;font-weight:800;cursor:pointer;">午前</button><button type="button" id="btn-pm" onclick="setSlot('PM')" style="border:0;border-left:1px solid var(--grid);padding:5px 14px;font-size:13px;font-weight:800;cursor:pointer;">午後</button></span></span><input type="hidden" id="save-ampm" value="AM"><button class="action" style="background:var(--green);" onclick="savePositionHistory()">💾 この配置を履歴に保存</button><button class="action" style="background:#184f95;" onclick="saveBoardImage()">🖼️ 画像で保存</button><span id="save-status" style="font-size:12px;color:var(--text2);"></span></span>
+    <span class="stat">配置済み：<b id="stat-assigned">0</b> / <span id="stat-capacity">0</span> 枠　　未配置：<b id="stat-pool">0</b> 名　　本日出勤：<b id="stat-attend">0</b> 名</span><span class="save-hist" style="display:flex;gap:8px;align-items:center;margin-left:auto;flex-wrap:wrap;"><input type="hidden" id="save-ampm" value="AM"><button class="action" style="background:var(--green);" onclick="savePositionHistory()">💾 この配置を履歴に保存</button><button class="action" style="background:#184f95;" onclick="saveBoardImage()">🖼️ 画像で保存</button><span id="save-status" style="font-size:12px;color:var(--text2);"></span></span>
   </div>
 
   <!-- ② 本日の工程トグル：タブ下・板の上（板の中ではない） -->
   <div class="zone-off-panel" id="zone-off-panel">
     <div class="zop-ttl">本日の工程</div>
     <div id="zop-body"></div>
+  </div>
+
+  <!-- ② 時間帯（午前／午後）：本日の工程と同じ左パネル。押すとその時間帯の配置を表示（午前と午後は別々に記憶） -->
+  <div class="zone-off-panel slot-panel" id="slot-panel">
+    <div class="zop-ttl">時間帯</div>
+    <div class="zop-btns">
+      <button type="button" class="zop-btn slot-btn" id="btn-am" onclick="setSlot('AM')">午前</button>
+      <button type="button" class="zop-btn slot-btn" id="btn-pm" onclick="setSlot('PM')">午後</button>
+    </div>
   </div>
 
   <div class="board-photo" id="board-photo"></div>
@@ -635,9 +647,8 @@ function setSlot(slot){
 }
 function paintSlotButtons_(){
   var ba = document.getElementById('btn-am'), bp = document.getElementById('btn-pm');
-  var on = 'background:var(--green);color:#fff;', off = 'background:#fff;color:var(--text2);';
-  if(ba) ba.style.cssText = 'border:0;padding:5px 14px;font-size:13px;font-weight:800;cursor:pointer;' + (CUR_SLOT==='AM'?on:off);
-  if(bp) bp.style.cssText = 'border:0;border-left:1px solid var(--grid);padding:5px 14px;font-size:13px;font-weight:800;cursor:pointer;' + (CUR_SLOT==='PM'?on:off);
+  if(ba) ba.classList.toggle('sel', CUR_SLOT==='AM');
+  if(bp) bp.classList.toggle('sel', CUR_SLOT==='PM');
 }
 
 /* ===================== 自動配置 / ランダム配置 =====================
