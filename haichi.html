@@ -148,7 +148,7 @@
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="haichi" onclick="switchTab('haichi',this)">📍 配置図</button>
-  <button class="tab-btn" data-tab="skill" onclick="switchTab('skill',this)">📊 力量表（入力）</button>
+  <button class="tab-btn" data-tab="skill" onclick="switchTab('skill',this)">📊 力量表（閲覧）</button>
   <button class="tab-btn" data-tab="settei" onclick="switchTab('settei',this)">⚙️ ゾーン設定</button>
 </div>
 
@@ -193,9 +193,12 @@
 <!-- ==================== 力量表タブ ==================== -->
 <div class="panel" id="panel-skill">
   <div class="note">
-    各マスに<b>配置優先の番号</b>を入れます（<b>1が最優先</b>／数字が小さいほど先にその場所へ配置）。<b>×</b>（または x）＝その場所には入れない。<b>空欄（―）</b>＝その場所には自動配置しない。<b>同じ番号の人は自動配置でランダム</b>に並びます。ここで入れた番号がそのまま「配置図」タブの🧩自動配置に反映されます。<br>
-    <b>出勤（シフト）</b>：センターのシフト表とつなぐと、チェックの横に当日のシフト（〇／休／午後休／時間指定 など）が自動で表示されます。出勤チェックを外すと、その日は自動配置の対象から外れます（欠勤・休み扱い）。<br>
-    ※初期値は力量表（〇→1・△→2・×→×）から自動で入ります。あとから数字を自由に変えられます。
+    <b>この表は閲覧専用です。</b>力量（配置優先の番号）の<b>編集はスプレッドシートの「力量表」で</b>行ってください。ここは常に力量表の内容を反映して表示します（マスは <b>1が最優先</b>／数字が小さいほど先に配置・<b>×</b>＝その場所は不可・<b>―</b>＝自動配置しない）。<br>
+    <b>出勤（シフト）</b>のチェックだけは、その日の欠席などに合わせてここで外せます（外すとその日は自動配置の対象外。シフト表とつなぐとシフトが横に表示されます）。
+    <div style="margin-top:10px;">
+      <button class="action" style="background:#0f7a34;" onclick="openSkillSheet()">📝 力量表（スプレッドシート）を開いて編集</button>
+      <span id="skill-sheet-note" style="font-size:12px;color:var(--text2);margin-left:8px;"></span>
+    </div>
   </div>
   <div class="table-wrap">
     <table class="skill" id="skill-table"></table>
@@ -698,14 +701,22 @@ function renderSkillTable(){
     ZONES.forEach(z=>{
       const v = prioRaw(w.id, z.skill);
       const cls = isBlockedCell_(w.id, z.skill) ? 'pcell-x' : (prioNumOf(w.id, z.skill)!==null ? 'pcell-n' : 'pcell-blank');
-      html += `<td class="cell ${cls}"><input class="prio-cell" inputmode="numeric" value="${v}" placeholder="―" onchange="setPrioCell('${w.id}','${z.skill}', this.value)"></td>`;
+      // ① 閲覧専用：ここでは編集不可（力量の編集はスプレッドシートの力量表で行う）
+      html += `<td class="cell ${cls}"><span class="prio-cell ro" style="display:block;text-align:center;font-weight:800;">${v!==''?v:'―'}</span></td>`;
     });
     html += '</tr>';
   });
   html += '</tbody>';
   table.innerHTML = html;
+  var _ssn = document.getElementById('skill-sheet-note'); if(_ssn) _ssn.textContent = SKILL_SHEET_URL ? '' : '（スプレッドシートのURLが未設定です。管理者に設定を依頼してください）';
 }
-// 力量表のマスに入力：数字＝優先番号（小さいほど先）／「×」or「x」＝不可／空欄＝―。同じ番号は自動配置でランダム。
+// ① 力量の編集はスプレッドシートの「力量表」で行う。URLは下の定数に貼り付け（未設定なら案内）。
+var SKILL_SHEET_URL = '';   // 例: 'https://docs.google.com/spreadsheets/d/xxxxxxxx/edit'
+function openSkillSheet(){
+  if(!SKILL_SHEET_URL){ alert('力量表スプレッドシートのURLが未設定です。\n担当が SKILL_SHEET_URL にURLを設定すると、ここから開けるようになります。'); return; }
+  window.open(SKILL_SHEET_URL, '_blank', 'noopener');
+}
+// 力量表のマスに入力：数字＝優先番号（小さいほど先）／「×」or「x」＝不可／空欄＝―。同じ番号は自動配置でランダム。（※現在は閲覧専用。編集はスプレッドシートで）
 function setPrioCell(wid, skillKey, val){
   var s = String(val==null?'':val).trim();
   var out;

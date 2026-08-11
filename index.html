@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>センター電子黒板（完成イメージ）</title>
+<title>センター電子黒板</title>
 <style>
   :root{
     color-scheme: light;
@@ -522,7 +522,7 @@
 <div class="board">
 
   <header>
-    <div class="title">㈱カワカミ蓮根　センター電子黒板<span>力量表・配置図・目標値をひと画面に集約（完成イメージ／数値はサンプル）</span></div>
+    <div class="title">㈱カワカミ蓮根　センター電子黒板</div>
     <div class="clock"><div class="date" id="hdr-date">2026年7月28日（火）</div><div class="time" id="hdr-time">08:42</div></div>
   </header>
 
@@ -536,11 +536,11 @@
 
   <div id="view-board" class="view active">
 
-  <div class="alert-bar">
+  <!-- アラート：資材確認（足りない資材があるとき）／ヘルプ要請（人が足りない見込みのとき）だけ自動表示。無い時は非表示。 -->
+  <div class="alert-bar" id="alert-bar" style="display:none;">
     <div class="dot"></div>
     アラート：
-    <div class="item">段ボール（Mサイズ）残り僅か</div>
-    <div class="item">はつり工程　進捗やや遅れ</div>
+    <span id="alert-items" style="display:flex;gap:8px;flex-wrap:wrap;"></span>
   </div>
 
   <div class="target-strip predict">
@@ -725,9 +725,9 @@
   <div id="view-seisan" class="view">
     <div class="seisan-wrap">
       <div class="seisan-head">
-        <div class="ttl">🧑‍🌾 生産者　持ち込み舟数・出来高の記録　<span id="seisan-date-label" class="seisan-date"></span></div>
+        <div class="ttl">🧑‍🌾 生産者　持ち込み量・出来高の記録　<span id="seisan-date-label" class="seisan-date"></span></div>
         <div class="seisan-status" id="seisan-status"></div>
-        <div class="seisan-total">本日合計 <b id="seisan-total-funes">0</b> 舟 ／ <b id="seisan-total-kg">0</b> kg</div>
+        <div class="seisan-total">本日合計　合計 <b id="seisan-total-kg">0</b>kg ／ C <b id="seisan-total-c">0</b>kg ／ S <b id="seisan-total-s">0</b>kg　<span style="font-size:12px;color:var(--muted);font-weight:700;">（<b id="seisan-total-funes">0</b> c/s）</span></div>
       </div>
 
       <div class="seisan-add">
@@ -742,11 +742,10 @@
       <div id="seisan-list" class="seisan-list"><!-- 生産者カードをJSで生成 --></div>
       <div class="seisan-empty" id="seisan-empty">まだ生産者が登録されていません。上の欄に生産者名を入れて「＋ 生産者を追加」を押してください。</div>
 
-      <div class="seisan-hint"><b>午前／午後</b>を選んでから<b>生産者のボタン</b>を押すと、その生産者のカードが追加されます。各サイズの欄に<b>持ち込み舟数</b>を入れると <b>出来高kg＝舟数×サイズ</b> を自動計算します。ここは<b>電子黒板の実績数量には含めません</b>（生産者ごとの記録用）。記録はGoogleスプレッドシート「生産者記録」に日付ごと保存され、他のPC・翌日でも残ります。</div>
+      <div class="seisan-hint"><b>午前／午後</b>を選んでから<b>生産者のボタン</b>を押すと、その生産者のカードが追加されます。洗い・土付きの各サイズは <b>c/s（ケース）</b> で入れると <b>出来高kg＝c/s×サイズ</b> を自動計算。<b>半端</b>と<b>C・S</b>は<b>㎏で直接</b>入力します（合計＝洗い＋土付き＋半端、C・Sは別集計）。ここは<b>電子黒板の実績数量には含めません</b>（生産者ごとの記録用）。記録はGoogleスプレッドシート「生産者記録」に日付ごと保存され、他のPC・翌日でも残ります。</div>
     </div>
   </div><!-- /view-seisan -->
 
-  <footer class="updated">最終更新：2026/07/28 08:42　※本画面はDX完成イメージ（サンプル数値）です</footer>
 
 
 
@@ -1420,17 +1419,21 @@
   var SEISAN = { date:'', list:[] };   // list:[{name, ampm:'AM'|'PM', rows:{sizeKey:funes}}]
   var SEISAN_AMPM = 'AM';              // 追加時に選ぶ時間帯
   var SEISAN_NAMES = ['田畑','庄内','村川','岩本','坂田'];   // ⑤ 生産者は決まっているのでボタンで選ぶ
+  // cat: 合計の集計区分。'main'＝洗い＋土付き＋半端（合計kgに入る）／'C'／'S'は別々に集計。
+  // kgDirect: c/s×サイズではなく、入れた数字がそのまま㎏（半端・C・S）。unit: 入力欄の単位表示。
   var SEISAN_SIZES = [
-    { grp:'洗い', kg:3.34, label:'3.34㎏' },
-    { grp:'洗い', kg:2,    label:'2㎏' },
-    { grp:'洗い', kg:5,    label:'5㎏' },
-    { grp:'洗い', kg:10,   label:'10㎏' },
-    { grp:'土',   kg:2,    label:'2㎏' },
-    { grp:'土',   kg:5,    label:'5㎏' },
-    { grp:'土',   kg:10,   label:'10㎏' },
-    // ④ C・S は㎏で直接入力（舟数×サイズではなく、入れた数字がそのまま㎏）。舟数合計には含めず、出来高kgには含める。
-    { grp:'kg直接', label:'C', key:'C|1', kg:1, kgDirect:true },
-    { grp:'kg直接', label:'S', key:'S|1', kg:1, kgDirect:true }
+    { grp:'洗い', kg:3.34, label:'3.34㎏', cat:'main' },
+    { grp:'洗い', kg:2,    label:'2㎏',   cat:'main' },
+    { grp:'洗い', kg:5,    label:'5㎏',   cat:'main' },
+    { grp:'洗い', kg:10,   label:'10㎏',  cat:'main' },
+    { grp:'洗い', key:'洗い半端|1', label:'半端', kg:1, kgDirect:true, cat:'main' },   // ② 半端＝㎏で直接入力
+    { grp:'土',   kg:2,    label:'2㎏',   cat:'main' },
+    { grp:'土',   kg:5,    label:'5㎏',   cat:'main' },
+    { grp:'土',   kg:10,   label:'10㎏',  cat:'main' },
+    { grp:'土',   key:'土半端|1', label:'半端', kg:1, kgDirect:true, cat:'main' },
+    // C・S は㎏で直接入力。合計(main)には含めず、C・Sとして別々に集計・表示。
+    { grp:'CS', label:'C', key:'C|1', kg:1, kgDirect:true, cat:'C' },
+    { grp:'CS', label:'S', key:'S|1', kg:1, kgDirect:true, cat:'S' }
   ];
   function seisanSizeKey(s){ return s.key || (s.grp + '|' + s.kg); }
   function seisanTodayStr(){ var t=new Date(); return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); }
@@ -1486,12 +1489,22 @@
     inp.value=''; inp.focus();
     seisanRender(); seisanPushSave();
   }
-  function seisanFunesOf(p){ var s=0; SEISAN_SIZES.forEach(function(sz){ if(sz.kgDirect) return; s += Number(p.rows[seisanSizeKey(sz)])||0; }); return s; }   // ④ C/S(㎏直接)は舟数に含めない
-  function seisanKgOf(p){ var s=0; SEISAN_SIZES.forEach(function(sz){ s += (Number(p.rows[seisanSizeKey(sz)])||0)*sz.kg; }); return s; }
+  function seisanFunesOf(p){ var s=0; SEISAN_SIZES.forEach(function(sz){ if(sz.kgDirect) return; s += Number(p.rows[seisanSizeKey(sz)])||0; }); return s; }   // c/s の合計（半端・C/Sの㎏直接は含めない）
+  // 出来高kgを 合計(main=洗い+土付き+半端) / C / S に分けて集計
+  function seisanKgSplit(p){
+    var o={ main:0, C:0, S:0 };
+    SEISAN_SIZES.forEach(function(sz){
+      var v=Number(p.rows[seisanSizeKey(sz)])||0; if(!v) return;
+      var kg=v*sz.kg;   // c/s×サイズ、または㎏直接(kg=1)
+      if(sz.cat==='C') o.C+=kg; else if(sz.cat==='S') o.S+=kg; else o.main+=kg;
+    });
+    return o;
+  }
+  function seisanKgOf(p){ var o=seisanKgSplit(p); return o.main+o.C+o.S; }   // その生産者の総kg
   function seisanDel(i){
     var p=SEISAN.list[i]; if(!p) return;
     var tot=seisanFunesOf(p);
-    if(tot>0 && !confirm('「'+p.name+'（'+(p.ampm==='PM'?'午後':'午前')+'）」（'+tot+'舟）を削除しますか？')) return;
+    if(tot>0 && !confirm('「'+p.name+'（'+(p.ampm==='PM'?'午後':'午前')+'）」（'+tot+' c/s）を削除しますか？')) return;
     SEISAN.list.splice(i,1);
     seisanRender(); seisanPushSave();
   }
@@ -1504,15 +1517,21 @@
     seisanRenderTotals(); seisanPushSave();
   }
   function seisanRenderTotals(){
-    var tf=0, tk=0;
-    SEISAN.list.forEach(function(p){ tf+=seisanFunesOf(p); tk+=seisanKgOf(p); });
-    var ef=document.getElementById('seisan-total-funes'); if(ef) ef.textContent=tf.toLocaleString('ja-JP');
-    var ek=document.getElementById('seisan-total-kg'); if(ek) ek.textContent=seisanFmtKg(tk);
+    var Tmain=0, Tc=0, Ts=0, Tcs=0;
+    SEISAN.list.forEach(function(p){ var o=seisanKgSplit(p); Tmain+=o.main; Tc+=o.C; Ts+=o.S; Tcs+=seisanFunesOf(p); });
+    var set=function(id,val){ var e=document.getElementById(id); if(e) e.textContent=val; };
+    set('seisan-total-kg', seisanFmtKg(Tmain));   // 合計＝洗い＋土付き＋半端
+    set('seisan-total-c',  seisanFmtKg(Tc));
+    set('seisan-total-s',  seisanFmtKg(Ts));
+    set('seisan-total-funes', Tcs.toLocaleString('ja-JP'));
     var cards=document.querySelectorAll('.seisan-card');
     for(var i=0;i<cards.length;i++){
       var p=SEISAN.list[i]; if(!p) continue;
-      var cf=cards[i].querySelector('.ct-funes'); if(cf) cf.textContent=seisanFunesOf(p).toLocaleString('ja-JP');
-      var ck=cards[i].querySelector('.ct-kg'); if(ck) ck.textContent=seisanFmtKg(seisanKgOf(p));
+      var o=seisanKgSplit(p);
+      var cf=cards[i].querySelector('.ct-cs');   if(cf) cf.textContent=seisanFunesOf(p).toLocaleString('ja-JP');
+      var cm=cards[i].querySelector('.ct-main'); if(cm) cm.textContent=seisanFmtKg(o.main);
+      var cc=cards[i].querySelector('.ct-c');    if(cc) cc.textContent=seisanFmtKg(o.C);
+      var cs=cards[i].querySelector('.ct-s');    if(cs) cs.textContent=seisanFmtKg(o.S);
       var rows=cards[i].querySelectorAll('.seisan-size');
       for(var r=0;r<rows.length;r++){
         var key=rows[r].getAttribute('data-key'); var sz=null;
@@ -1530,20 +1549,21 @@
       html+='<div class="seisan-grid">';
       var lastGrp='';
       SEISAN_SIZES.forEach(function(sz){
-        if(sz.grp!==lastGrp){ html+='<div class="seisan-grp-h">'+(sz.grp==='土'?'土付き':(sz.grp==='kg直接'?'㎏で直接入力（C／S）':sz.grp))+'</div>'; lastGrp=sz.grp; }
+        if(sz.grp!==lastGrp){ html+='<div class="seisan-grp-h">'+(sz.grp==='土'?'土付き':(sz.grp==='CS'?'C・S（㎏で直接入力）':sz.grp))+'</div>'; lastGrp=sz.grp; }
         var key=seisanSizeKey(sz); var f=Number(p.rows[key])||0;
         if(sz.kgDirect){
-          // ④ C・S：舟数ではなく㎏を直接入力（そのまま出来高kgに加算）
+          // ② 半端・C・S：c/sではなく㎏を直接入力（そのまま出来高kgに加算）
           html+='<div class="seisan-size" data-key="'+key+'"><span class="sz">'+sz.label+'</span>'+
                 '<input type="number" min="0" step="0.1" inputmode="decimal" value="'+(f||'')+'" placeholder="0"><span class="u">kg</span></div>';
         } else {
           html+='<div class="seisan-size" data-key="'+key+'"><span class="sz">'+sz.label+'</span>'+
-                '<input type="number" min="0" step="1" inputmode="numeric" value="'+(f||'')+'" placeholder="0"><span class="u">舟</span>'+
+                '<input type="number" min="0" step="1" inputmode="numeric" value="'+(f||'')+'" placeholder="0"><span class="u">c/s</span>'+
                 '<span class="kg">'+(f? seisanFmtKg(f*sz.kg)+'kg':'')+'</span></div>';
         }
       });
       html+='</div>';
-      html+='<div class="cardtot">舟数 <b class="ct-funes">'+seisanFunesOf(p)+'</b>　出来高 <b class="ct-kg">'+seisanFmtKg(seisanKgOf(p))+'</b>kg</div>';
+      var _sp=seisanKgSplit(p);
+      html+='<div class="cardtot">c/s <b class="ct-cs">'+seisanFunesOf(p)+'</b>　合計 <b class="ct-main">'+seisanFmtKg(_sp.main)+'</b>kg ／ C <b class="ct-c">'+seisanFmtKg(_sp.C)+'</b>kg ／ S <b class="ct-s">'+seisanFmtKg(_sp.S)+'</b>kg</div>';
       card.innerHTML=html;
       card.querySelector('.nm').textContent=p.name;
       card.querySelector('.del').onclick=function(){ seisanDel(i); };
@@ -1952,6 +1972,7 @@
       el.textContent = '今の人数で目標終業に間に合う見込みです。';
       if(btn) btn.classList.remove('need');
     }
+    if(typeof refreshAlertBar==='function') refreshAlertBar();   // 上部アラート帯（ヘルプ要請）へ反映
   }
   function helpRequest(){
     var st = document.getElementById('help-status');
@@ -2232,6 +2253,26 @@
     var total=(a.total!=null)?a.total:items.length;
     if(total>0){ badge.style.display='inline-block'; badge.textContent='要対応 '+total; }
     else { badge.style.display='none'; }
+    refreshAlertBar();
+  }
+  // 上部アラート帯：資材確認（足りない資材があるとき）とヘルプ要請（人が足りない見込みのとき）だけ表示。無ければ帯ごと隠す。
+  function refreshAlertBar(){
+    var bar=document.getElementById('alert-bar'), box=document.getElementById('alert-items');
+    if(!bar||!box) return;
+    var items=[];
+    // ① 資材確認：発注推奨（在庫切れ予定）＋納品遅延＝“足りない資材”があるとき
+    try{
+      var a=JSON.parse(localStorage.getItem('shizai_alerts')||'null');
+      var short=a ? (((a.reorder&&a.reorder.length)||0)+((a.deliverLate&&a.deliverLate.length)||0)) : 0;
+      if(short>0) items.push('<div class="item" style="cursor:pointer" onclick="openShizaiApp()" title="資材管理アプリを開く">🧰 資材確認（'+short+'件）</div>');
+    }catch(e){}
+    // ② ヘルプ要請：目標終業に人が足りない見込みのとき
+    try{
+      var need=(typeof helpNeededPeople==='function')?helpNeededPeople():0;
+      if(need>0) items.push('<div class="item" style="cursor:pointer" onclick="var h=document.getElementById(\'help-card\'); if(h) h.scrollIntoView({behavior:\'smooth\',block:\'center\'});" title="ヘルプ要請カードへ">🆘 ヘルプ要請（あと'+need+'人）</div>');
+    }catch(e){}
+    if(items.length){ box.innerHTML=items.join(''); bar.style.display=''; }
+    else { box.innerHTML=''; bar.style.display='none'; }
   }
   window.addEventListener('DOMContentLoaded', matLoadAlerts);
   window.addEventListener('storage', function(e){ if(e.key==='shizai_alerts') matLoadAlerts(); });
