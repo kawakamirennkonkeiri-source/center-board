@@ -1677,7 +1677,7 @@
   }
   function haichiLoadLive(){
     if(!CENTER_ENDPOINT) return;
-    haichiFetchOne('haichi', function(d){ if(d && !d.error){ centerLive.haichi = d; haichiPushToFrames(); } });
+    haichiFetchOne('haichi', function(d){ if(d && !d.error){ centerLive.haichi = d; centerLive.prio = d.prio || {}; haichiPushToFrames(); } });  // 優先番号は「配置優先」シートから（クラウドcfgではなくシートが基準）
     haichiFetchOne('shift',  function(d){ if(d && !d.error){ centerLive.shift  = d; updateStaffCell(); haichiPushToFrames(); } });
   }
 
@@ -1687,7 +1687,7 @@
      ・起動時にクラウドから読み込み → 配置図へ反映（localStorageより優先）
      ・変更があったら少し待って（デバウンス）クラウドへ保存。競合時は相手の変更を取り込み再保存
      ・5分ごとに再取得して他PCの変更を反映（未保存の変更があるときは取りに行かない） */
-  var HAICHI_CFG_KEYS = ['zoneCfg','layout','prio'];
+  var HAICHI_CFG_KEYS = ['zoneCfg','layout'];   // prioは「配置優先」シートが基準になったのでクラウド同期対象から外す
   var HAICHI_LS_KEY = { zoneCfg:'haichi_zonecfg', layout:'haichi_layout', prio:'haichi_prio' };
   var _cfgRev = 0;                 // 最後に読み書きしたクラウドのリビジョン
   var _cfgDirty = {};             // このPCで変更したがまだ保存できていないキー
@@ -1695,9 +1695,11 @@
   var _cfgSaving = false;         // 保存中フラグ
   var _cfgSaveTimer = null;       // デバウンス用タイマー
   var _cfgLastSaved = '';         // 最後にクラウドと一致した内容（同じ内容の無駄な再保存を防ぐ）
-  function haichiCfgBlob(){ return { zoneCfg: centerLive.zoneCfg || null, prio: centerLive.prio || null, layout: centerLive.layout || null }; }
+  var _cfgKeepPrio = null;        // 旧クラウドの優先番号を“そのまま保持”＝保存で消さない（配置優先シートへの初期移行が後からでも読めるように）
+  function haichiCfgBlob(){ return { zoneCfg: centerLive.zoneCfg || null, layout: centerLive.layout || null, prio: _cfgKeepPrio }; }   // prioはシート基準だが、既存値は消さず温存
   // クラウドから受け取った設定を反映（adoptAll=true＝全部取り込む／false＝自分が変えていないキーだけ取り込む）
   function haichiCfgApplyCloud(obj, rev, adoptAll){
+    if(obj && obj.prio != null) _cfgKeepPrio = obj.prio;   // 旧優先番号を温存（板の数字を移行するまで保持）
     if(obj){
       HAICHI_CFG_KEYS.forEach(function(k){
         if((adoptAll || !_cfgDirty[k]) && obj[k] != null){

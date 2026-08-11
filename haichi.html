@@ -212,10 +212,10 @@
 <!-- ==================== 力量表タブ ==================== -->
 <div class="panel" id="panel-skill">
   <div class="note">
-    <b>この表は閲覧専用です。</b>力量（配置優先の番号）の<b>編集はスプレッドシートの「力量表」で</b>行ってください。ここは常に力量表の内容を反映して表示します（マスは <b>1が最優先</b>／数字が小さいほど先に配置・<b>×</b>＝その場所は不可・<b>―</b>＝自動配置しない）。<br>
+    <b>この表は「配置優先（優先番号）」を表示しています（閲覧専用）。</b>数字が小さいほど先に配置・<b>×</b>＝その場所は不可・<b>―</b>＝なし。<b>編集はスプレッドシートの「配置優先」シートで</b>行ってください（保存すると数分で配置図に反映されます）。<br>
     <b>出勤（シフト）</b>のチェックだけは、その日の欠席などに合わせてここで外せます（外すとその日は自動配置の対象外。シフト表とつなぐとシフトが横に表示されます）。
     <div style="margin-top:10px;">
-      <button class="action" style="background:#0f7a34;" onclick="openSkillSheet()">📝 力量表（スプレッドシート）を開いて編集</button>
+      <button class="action" style="background:#0f7a34;" onclick="openSkillSheet()">📝 スプレッドシートを開く（「配置優先」シートで編集）</button>
       <span id="skill-sheet-note" style="font-size:12px;color:var(--text2);margin-left:8px;"></span>
     </div>
   </div>
@@ -718,9 +718,9 @@ function renderSkillTable(){
     html += `<tr><td class="att-cell"><label><input type="checkbox" class="att-toggle" ${w.attend?'checked':''} onchange="setWorkerAttend('${w.id}', this.checked)">${shiftBadgeHtml(w)}</label></td>`;
     html += `<td class="name">${w.name}</td>`;
     ZONES.forEach(z=>{
+      // ① 閲覧専用：配置優先シートの“優先番号”を表示（力量表○×からの初期値も反映）。編集は配置優先シートで。
       const v = prioRaw(w.id, z.skill);
       const cls = isBlockedCell_(w.id, z.skill) ? 'pcell-x' : (prioNumOf(w.id, z.skill)!==null ? 'pcell-n' : 'pcell-blank');
-      // ① 閲覧専用：ここでは編集不可（力量の編集はスプレッドシートの力量表で行う）
       html += `<td class="cell ${cls}"><span class="prio-cell ro" style="display:block;text-align:center;font-weight:800;">${v!==''?v:'―'}</span></td>`;
     });
     html += '</tr>';
@@ -730,7 +730,7 @@ function renderSkillTable(){
   var _ssn = document.getElementById('skill-sheet-note'); if(_ssn) _ssn.textContent = SKILL_SHEET_URL ? '' : '（スプレッドシートのURLが未設定です。管理者に設定を依頼してください）';
 }
 // ① 力量の編集はスプレッドシートの「力量表」で行う。URLは下の定数に貼り付け（未設定なら案内）。
-var SKILL_SHEET_URL = '';   // 例: 'https://docs.google.com/spreadsheets/d/xxxxxxxx/edit'
+var SKILL_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1D0DPqy1chAdcBFyIczYtAJx7CJMTlevhlfxlO0HINGo/edit?gid=395555265#gid=395555265';   // センター力量表（曽我さん）
 function openSkillSheet(){
   if(!SKILL_SHEET_URL){ alert('力量表スプレッドシートのURLが未設定です。\n担当が SKILL_SHEET_URL にURLを設定すると、ここから開けるようになります。'); return; }
   window.open(SKILL_SHEET_URL, '_blank', 'noopener');
