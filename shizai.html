@@ -159,14 +159,18 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
 <section id="view-stock" class="view">
   <div class="sec-title">月末棚卸（実数合わせ → 破棄率を自動学習）</div>
   <div class="hint">
-  月末に<b>実際の在庫数</b>を入力して「確定」すると：<br>
+  月末に<b>実際の在庫数</b>を入力して「<b>この月の棚卸を確定</b>」すると：<br>
   ① 差（理論在庫−実在庫＝ロス）から <b>破棄率＝ロス÷理論使用量</b> を自動計算し、資材マスタの破棄率を更新（回数を重ねるほど精度UP）。<br>
-  ② 実在庫を新しい基準在庫にリセット（＝ドリフトを毎月ゼロ点合わせ）。<br>
-  ③ 破棄率が <b id="stAlertPct">10</b>%（設定で変更可）を超えたら「⚠️破棄が多すぎ」を表示。<b>理由を書くとアラートが消えます</b>。
+  ② 実在庫を新しい基準在庫にリセット（＝ドリフトを毎月ゼロ点合わせ）／起点日を翌月へ／バックアップを保存。<br>
+  ③ 破棄率が <b id="stAlertPct">10</b>%（設定で変更可）を超えたら「⚠️破棄が多すぎ」を表示。<b>理由を書くとアラートが消えます</b>。<br>
+  <b>🔁 棚卸再確認</b>＝月の途中で数え直したいとき用。<b>実在庫を入力して押すと、現在庫だけを今の実数に合わせます</b>（破棄率の学習・起点日の更新・バックアップは行いません）。<br>
+  どちらのボタンも、先に<b>担当者名</b>を入れてから押してください（誰が棚卸したか記録されます）。
   </div>
   <div class="row">
     <div class="field"><label>対象月</label><input type="month" id="st_month"></div>
+    <div class="field"><label>棚卸をする人（担当者名）<span style="color:var(--danger)">※必須</span></label><input id="st_by" placeholder="例：林田" style="width:150px"></div>
     <button class="btn" onclick="commitStocktake()">✅ この月の棚卸を確定</button>
+    <button class="btn sec" onclick="recheckStocktake()">🔁 棚卸再確認（在庫を今の実数に合わせる）</button>
     <span class="muted" id="st_meta"></span>
   </div>
   <div class="tablewrap">
@@ -260,10 +264,11 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
     <button class="btn small" onclick="openSwitchSetup()">＋ 真空袋の切替チェーンを用意</button>
   </div>
   <div class="hint">
-  <b>ある資材を使い切ったら、次の資材へ切り替えたい</b>ときに使います（例：真空袋の銘柄切替）。<br>
+  <b>ある資材を使い切ったら／決めた日になったら／決めた枚数を使ったら、次の資材へ切り替えたい</b>ときに使います（例：真空袋の銘柄切替）。<br>
   ・<b>発注しない（使い切り）</b>にチェックすると、その資材は「発注推奨」を出しません。在庫が尽きかけると代わりに<b>切替のお知らせ</b>を出します。<br>
-  ・<b>次に使う資材</b>を選び、使い切ったら「▶ 今すぐ切替」を押すと、BOM（真空区分などの袋の割り当て）が次の資材に付け替わります。<br>
-  ・在庫がまだ<b>未入力</b>の資材は、右の「🔢在庫」ボタンで実数を入れられます（ダッシュボードの各行にもあります）。
+  ・<b>切替日</b>＝この日以降になったら切替をお知らせ。<b>○枚使ったら</b>＝この列の数を入れた時点の在庫から、その枚数を使ったら切替をお知らせ。<br>
+  ・<b>次に使う資材</b>を選び、条件がそろったら「▶ 今すぐ切替」を押すと、BOM（真空区分などの袋の割り当て）が次の資材に付け替わります。<br>
+  ・在庫がまだ<b>未入力</b>の資材は、右の「🔢在庫」ボタンで実数を入れられます。
   </div>
   <div class="hint" id="switchChainHint" style="font-weight:600"></div>
   <div class="tablewrap">
@@ -271,7 +276,10 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
       <thead><tr>
         <th class="l">分類</th><th class="l">資材名</th><th>現在庫</th>
         <th title="発注推奨を出さず、尽きたら切替を促す">発注しない<br>(使い切り)</th>
-        <th class="l">次に使う資材（切替先）</th><th class="l">操作</th>
+        <th class="l">次に使う資材（切替先）</th>
+        <th title="この日以降で切替をお知らせ">切替日</th>
+        <th title="この列に数を入れた時点の在庫から、この枚数を使ったら切替をお知らせ">○枚使ったら<br>切替</th>
+        <th class="l">操作</th>
       </tr></thead>
       <tbody></tbody>
     </table>
@@ -471,7 +479,7 @@ function defaultState(){
 function todayStr(){const d=new Date();const p=n=>String(n).padStart(2,'0');
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());}
 function load(){ try{S=JSON.parse(localStorage.getItem(LS));}catch(e){} if(!S)S=defaultState();
-  S.funes=S.funes||{};S.futureFunes=S.futureFunes||{};S.orders=S.orders||[];S.stocktakes=S.stocktakes||[];S.boms=S.boms||{};S.backups=S.backups||[];
+  S.funes=S.funes||{};S.futureFunes=S.futureFunes||{};S.orders=S.orders||[];S.stocktakes=S.stocktakes||[];S.boms=S.boms||{};S.backups=S.backups||[];S.recounts=S.recounts||[];
   S.settings=Object.assign({safetyDays:30,scrapAlertPct:10,shareOn:false,deviceName:''},S.settings);
   S.cloud=Object.assign({rev:0,savedAt:'',savedBy:''},S.cloud);
   migrateV3();
@@ -615,14 +623,24 @@ function computeStock(){
     }
     else { warn = (daily>0 ? stockDays<=thresholdDays : stock<=0); }   // auto（今後予定が無い時は過去平均で判定）
     // 「発注しない（使い切り）」資材：発注推奨を出さず、在庫が尽きかけたら後継への切替を促す
-    let switchDue=false;
+    // ＋ 切替条件（切替日／○枚使ったら）でも切替をお知らせ
+    let switchDue=false, switchReason='';
+    const nextSet=!!m.nextMatId;
+    if(nextSet){
+      if(m.switchDate && base >= m.switchDate){ switchDue=true; switchReason='切替日 '+m.switchDate; }
+      if(Number(m.switchAfterQty||0)>0){
+        const qBase=(m.switchQtyBase!=null?Number(m.switchQtyBase):Number(m.initStock||0));
+        const used=qBase-stock;
+        if(used>=Number(m.switchAfterQty)){ switchDue=true; switchReason=switchReason||(fmt(Number(m.switchAfterQty))+'枚使用'); }
+      }
+    }
     if(m.noReorder){
-      if(warn||periodicDue||stock<=0) switchDue=true;
+      if(warn||periodicDue||stock<=0){ switchDue=true; switchReason=switchReason||'在庫僅少'; }
       warn=false; periodicDue=false;
     }
     let need=Math.max(0,Math.ceil(reorder+daily*safety-stock)); // 補充目安（次の安全在庫まで）
     if(m.minLot&&need>0)need=Math.ceil(need/m.minLot)*m.minLot;
-    return {m,theo,scrap,received:rec[m.id]||0,stock,daily,stockDays,thresholdDays,reorder,warn,need,off,mode,periodicDue,periodicNext,switchDue,
+    return {m,theo,scrap,received:rec[m.id]||0,stock,daily,stockDays,thresholdDays,reorder,warn,need,off,mode,periodicDue,periodicNext,switchDue,switchReason,
       hasFuture,runoutDate,runoutDays,futureTotal,
       hasSeason:hasSeason(m),suggest:seasonSuggest(m),order:openOrderOf(m.id)};
   });
@@ -634,9 +652,8 @@ function buildAlerts(){
   const reorder=[],deliver=[],scrap=[],periodic=[];
   rows.forEach(r=>{
     if(r.order){   // 発注中は全モード共通で「納品待ち」扱い
-      if(r.order.dueDate&&r.order.dueDate<S.settings.baseDate)
-        deliver.push({name:r.m.name,due:r.order.dueDate,late:true});
-      else deliver.push({name:r.m.name,due:r.order.dueDate,late:false});
+      const due=r.order.dueDate||'';const base=S.settings.baseDate;
+      deliver.push({name:r.m.name,due,late:!!(due&&due<base),dueReached:!!(due&&due<=base)});
       return;
     }
     if(r.mode==='periodic'){ if(r.periodicDue) periodic.push({name:r.m.name,days:Number(r.m.periodDays||0)}); return; }
@@ -658,12 +675,13 @@ function buildAlerts(){
 }
 function publishAlerts(){
   try{const a=buildAlerts();const st=stocktakeStatus();
-    const late=a.deliver.filter(d=>d.late).length;
+    const late=a.deliver.filter(d=>d.late);
+    const due=a.deliver.filter(d=>d.dueReached);   // 納品予定日が来た（=当日以降）
     localStorage.setItem('shizai_alerts',JSON.stringify({
       asOf:todayStr(),
-      reorderCount:a.reorder.length,deliverCount:late,scrapCount:a.scrap.length,periodicCount:a.periodic.length,
-      total:a.reorder.length+late+a.scrap.length+a.periodic.length+(st.due?1:0),
-      reorder:a.reorder.map(r=>r.name),deliverLate:a.deliver.filter(d=>d.late).map(d=>d.name),
+      reorderCount:a.reorder.length,deliverCount:due.length,scrapCount:a.scrap.length,periodicCount:a.periodic.length,
+      total:a.reorder.length+due.length+a.scrap.length+a.periodic.length+(st.due?1:0),
+      reorder:a.reorder.map(r=>r.name),deliverLate:late.map(d=>d.name),deliverDue:due.map(d=>d.name),
       scrap:a.scrap.map(s=>s.name),periodic:a.periodic.map(p=>p.name),
       stocktake:{month:st.month,done:st.done,due:st.due},
       appUrl:location.href.split('#')[0]
@@ -686,14 +704,14 @@ function renderDash(){
   const items=[];
   if(st.due)items.push(`<span class="pill scrap" style="cursor:pointer" onclick="switchView('stock')">📋 月末棚卸が未入力です（${st.month}）→ 入力する</span>`);
   a.reorder.forEach(r=>items.push(`<span class="pill reorder">🛒 ${r.name}（${r.threshold!=null?'残り '+fmt(r.stock)+' ≤ しきい値 '+fmt(r.threshold):(r.runoutDate?'在庫 '+fmt(r.stock)+' ／ 切れ予定 '+r.runoutDate.slice(5)+'（あと'+fmt(r.runoutDays)+'日）':'在庫 '+fmt(r.stock)+(r.days!=null?' ／ あと'+r.days+'日':''))}）</span>`));
-  a.deliver.filter(d=>d.late).forEach(d=>items.push(`<span class="pill deliver">⏰ ${d.name} 納品予定超過（${d.due}）</span>`));
+  a.deliver.filter(d=>d.dueReached).forEach(d=>items.push(`<span class="pill deliver">🚚 ${d.name} 納品予定（${d.due||''}）${d.late?' <b>※遅延</b>':''}</span>`));
   a.periodic.forEach(p=>items.push(`<span class="pill" style="background:#e0f2fe;color:#075985">🔔 ${p.name} 定期チェック時期（毎${p.days}日）</span>`));
   a.scrap.forEach(s=>items.push(`<span class="pill scrap">🗑 ${s.name} 破棄率高い（${fmt1(s.rate)}%）理由未記入</span>`));
   rows.forEach(r=>{
     if(r.suggest==='off')items.push(`<span class="pill deliver" style="cursor:pointer" onclick="toggleSeason('${r.m.id}')">🕒 ${r.m.name} はそろそろ季節終わり → 季節外にする</span>`);
     if(r.suggest==='on')items.push(`<span class="pill" style="background:#dcfce7;color:#15803d;cursor:pointer" onclick="toggleSeason('${r.m.id}')">🌱 ${r.m.name} のシーズンです → シーズンに戻す</span>`);
     if(r.switchDue){const nx=r.m.nextMatId?matById(r.m.nextMatId):null;
-      items.push(`<span class="pill reorder" style="cursor:pointer" onclick="switchView('switch')">🔁 ${r.m.name} 残りわずか${nx?' → '+nx.name+'へ切替':'（切替先未設定）'}</span>`);}
+      items.push(`<span class="pill reorder" style="cursor:pointer" onclick="switchView('switch')">🔁 ${r.m.name} 切替時期${r.switchReason?'（'+r.switchReason+'）':''}${nx?' → '+nx.name+'へ':'（切替先未設定）'}</span>`);}
   });
   if(items.length){ab.className='alertbar';ab.innerHTML='<h2>⚠️ 要対応 '+items.length+'件</h2><div class="items">'+items.join('')+'</div>';}
   else{ab.className='alertbar none';ab.innerHTML='<h2>✅ アラートなし</h2><div class="items"></div>';}
@@ -717,15 +735,14 @@ function renderDash(){
     const showAuto = (r.mode==='auto') && !r.off;   // 日次平均・在庫日数・余裕・発注点を出すのはauto時のみ
     let action,cls;
     const orderBtn='<button class="btn sec small" onclick="openOrderDlg(\''+r.m.id+'\')">発注</button>';
-    const countBtn='<button class="btn sec small" onclick="openCountDlg(\''+r.m.id+'\')">🔢在庫</button>';
     if(r.off){
       cls='muted';
       action='🕒 季節外 <button class="btn '+(r.suggest==='on'?'':'sec')+' small" onclick="toggleSeason(\''+r.m.id+'\')">▶ シーズンに戻す'+(r.suggest==='on'?'（時期です）':'')+'</button>';
     }else if(r.order){
-      // 発注中は全モード共通で「納品待ち／納品入力」
-      const late=r.order.dueDate&&r.order.dueDate<S.settings.baseDate;
-      cls=late?'state-warn':'state-wait';
-      action=(late?'⏰ 納品予定超過':'🚚 納品待ち')+' <span class="muted">〜'+(r.order.dueDate||'')+'</span> '+
+      // 発注中は全モード共通で「納品待ち／納品入力」。納品予定日が来たらオレンジで「納品予定」
+      const due=r.order.dueDate||'';const late=due&&due<S.settings.baseDate;const reached=due&&due<=S.settings.baseDate;
+      cls=late?'state-warn':(reached?'state-wait':'state-wait');
+      action=(late?'⏰ 納品予定 ※遅延':(reached?'🚚 本日 納品予定':'🚚 納品待ち'))+' <span class="muted">〜'+due+'</span> '+
         '<button class="btn warn small" onclick="openDeliver(\''+r.order.id+'\')">納品入力</button>';
     }else if(r.m.noReorder){
       // 発注しない（使い切り）資材：発注推奨を出さず、後継への切替を促す
@@ -751,10 +768,13 @@ function renderDash(){
     if(!r.off && r.hasSeason){
       action+=' <button class="btn '+(r.suggest==='off'?'warn':'sec')+' small" onclick="toggleSeason(\''+r.m.id+'\')">'+(r.suggest==='off'?'⏸ 季節外にする（そろそろ）':'季節外にする')+'</button>';
     }
-    if(!r.off) action+=' '+countBtn;   // 月の途中でも実在庫を入れ直せる
+    // 使い切り以外でも切替条件（日付/枚数）がそろったら切替ボタンを出す
+    if(!r.off && r.switchDue && !r.m.noReorder && r.m.nextMatId){ const nx=matById(r.m.nextMatId);
+      if(nx) action+=' <button class="btn small" onclick="switchToNext(\''+r.m.id+'\')">🔁 '+esc(nx.name)+'へ切替</button>';
+    }
     return `<tr style="${r.off?'opacity:.42;background:#f6f8fa':''}">
       <td class="l muted">${r.m.cat}</td><td class="l">${r.m.name}${r.off?' <span class="tag other">季節外</span>':''}${r.m.noReorder?' <span class="tag other">発注しない</span>':''}${r.mode!=='auto'&&!r.off?' <span class="tag kg">'+(r.mode==='periodic'?'定期':r.mode==='threshold'?'残数':'監視なし')+'</span>':''}</td>
-      <td style="font-weight:800">${fmt(r.stock)}${r.m.stockAdj?'<br><span class="muted" style="font-size:10px" title="手入力で在庫を補正">✎'+(r.m.stockAdjDate?r.m.stockAdjDate.slice(5):'手入力')+'</span>':''}</td><td>${showAuto?fmt1(r.daily):'—'}</td>
+      <td style="font-weight:800">${fmt(r.stock)}${r.m.stockAdj?'<br><span class="muted" style="font-size:10px" title="棚卸再確認で補正'+(r.m.stockAdjBy?(' / '+esc(r.m.stockAdjBy)):'')+'">✎'+(r.m.stockAdjDate?r.m.stockAdjDate.slice(5):'手入力')+'</span>':''}</td><td>${showAuto?fmt1(r.daily):'—'}</td>
       <td>${showAuto?projTxt:'—'}</td>
       <td class="l">${showAuto?'<span class="daybar"><span style="width:'+Math.round(ratio*100)+'%;background:'+barColor+'"></span></span>':'<span class="muted">—</span>'}</td>
       <td>${showAuto?fmt(r.reorder)+'<br><span class="muted" style="font-size:11px">閾値 '+r.thresholdDays+'日</span>':'—'}</td>
@@ -840,10 +860,13 @@ function stCalc(i){
   if(rateV>pct){judge.innerHTML='<span class="state-warn">⚠️破棄多い→理由記入</span>';rate.className='state-warn';}
   else{judge.innerHTML='<span class="state-ok">OK</span>';rate.className='muted';}
 }
+function stocktakeBy(){ return (document.getElementById('st_by')?document.getElementById('st_by').value:'' ).trim(); }
 function commitStocktake(){
   const month=document.getElementById('st_month').value;
   if(!month){alert('対象月を選んでください');return;}
-  if(!confirm(month+' の棚卸を確定します。\n・破棄率を更新\n・実在庫を新しい基準在庫にリセット\n・集計起点日を翌月へ\nよろしいですか？'))return;
+  const by=stocktakeBy();
+  if(!by){alert('棚卸をする人（担当者名）を入れてください。');document.getElementById('st_by').focus();return;}
+  if(!confirm(month+' の棚卸を確定します。（担当：'+by+'）\n・破棄率を更新\n・実在庫を新しい基準在庫にリセット\n・集計起点日を翌月へ\nよろしいですか？'))return;
   const pct=Number(S.settings.scrapAlertPct||0);let updated=0;
   stRows.forEach((r,i)=>{
     const av=document.getElementById('st_a_'+i).value;if(av==='')return;
@@ -858,18 +881,45 @@ function commitStocktake(){
     m.stockAdj=0; m.stockAdjDate='';   // 月末で実数確定 → 途中の在庫補正はクリア
     // 既存の同月記録を置換
     S.stocktakes=S.stocktakes.filter(s=>!(s.month===month&&s.materialId===r.mid));
-    S.stocktakes.push({id:'ST'+Date.now()+'_'+i,month,materialId:r.mid,actual,loss,rate:Math.round(rate*10)/10,reason,ack:rate<=pct||!!reason});
+    S.stocktakes.push({id:'ST'+Date.now()+'_'+i,month,materialId:r.mid,actual,loss,rate:Math.round(rate*10)/10,reason,by,ack:rate<=pct||!!reason});
     updated++;
   });
+  S.settings.lastStockBy=by;
   // 起点日を翌月1日へ
   const[y,mo]=month.split('-').map(Number);const nx=new Date(y,mo,1);const p=n=>String(n).padStart(2,'0');
   S.settings.startDate=nx.getFullYear()+'-'+p(nx.getMonth()+1)+'-'+p(nx.getDate());
   // ★ 月末バックアップ（荷造数クリア前の「締め」状態を丸ごと保存＝ローカル履歴＋スプレッドシート）
-  createMonthlyBackup(month);
+  createMonthlyBackup(month,by);
   // 使用(荷造数)は新期間ぶんに一旦クリア（実データはGAS再取得／手入力で入れ直し）
   S.funes={};
-  save();alert(updated+'品目を確定しました。基準在庫を更新し、起点日を '+S.settings.startDate+' にしました。\n\n💾 '+month+' のバックアップを保存しました（バックアップタブで確認・復元できます）。');
+  save();alert(updated+'品目を確定しました（担当：'+by+'）。基準在庫を更新し、起点日を '+S.settings.startDate+' にしました。\n\n💾 '+month+' のバックアップを保存しました（バックアップタブで確認・復元できます）。');
   initUI();switchView('dash');
+}
+// 🔁 棚卸再確認：月の途中で、入力した実在庫に現在庫だけを合わせる（破棄率・起点日・バックアップは触らない）
+function recheckStocktake(){
+  const by=stocktakeBy();
+  if(!by){alert('棚卸をする人（担当者名）を入れてください。');document.getElementById('st_by').focus();return;}
+  const now=S.settings.baseDate||todayStr();
+  const rows0=computeStock();const byId={};rows0.forEach(x=>byId[x.m.id]=x);
+  const items=[];
+  stRows.forEach((r,i)=>{
+    const av=document.getElementById('st_a_'+i).value;if(av==='')return;
+    const m=matById(r.mid);if(!m)return;
+    const before=byId[m.id]?byId[m.id].stock:0;const target=Number(av);
+    if(target===Math.round(before))return;             // 変化なしはスキップ
+    m.stockAdj=Number(m.stockAdj||0)+(target-before);  // 今の計算在庫との差を補正
+    m.stockAdjDate=now; m.stockAdjBy=by;
+    items.push({name:m.name,from:Math.round(before),to:target});
+  });
+  if(!items.length){alert('実在庫を入力した資材がありません（または在庫に変化がありません）。\n数え直した資材の「実在庫(入力)」欄に数字を入れてから押してください。');return;}
+  if(!confirm('現在庫を今の実数に合わせます（担当：'+by+'）。\n'+items.map(it=>'・'+it.name+'：'+fmt(it.from)+' → '+fmt(it.to)).join('\n')+'\n\n※破棄率の学習・起点日の更新・バックアップは行いません。よろしいですか？'))return;
+  S.recounts=S.recounts||[];
+  S.recounts.unshift({at:nowStr(),by,items});
+  if(S.recounts.length>50)S.recounts=S.recounts.slice(0,50);
+  S.settings.lastStockBy=by;
+  save();recalcAll();renderMat();renderSwitch();
+  alert(items.length+'品目の在庫を実数に合わせました（担当：'+by+'）。');
+  switchView('dash');
 }
 
 /* =================== BACKUP（月末棚卸ごとの世代保存） =================== */
@@ -884,8 +934,8 @@ function backupSnapshot(){
   return JSON.stringify(c);
 }
 // 月末バックアップを作成（このPCの履歴に追加＋スプレッドシートへ追記）
-function createMonthlyBackup(month){
-  const snap=backupSnapshot(); const at=nowStr(); const by=S.settings.deviceName||'';
+function createMonthlyBackup(month,who){
+  const snap=backupSnapshot(); const at=nowStr(); const by=(who||S.settings.deviceName||'');
   S.backups=(S.backups||[]).filter(b=>b.month!==month);
   S.backups.push({month,savedAt:at,savedBy:by,size:snap.length,json:snap});
   S.backups.sort((a,b)=> a.month<b.month?1:(a.month>b.month?-1:0));   // 新しい月が上
@@ -1070,6 +1120,14 @@ function swapSeason(dir){
 
 /* =================== 切替（後継・使い切り） =================== */
 function setMatNext(id,v){const m=matById(id);if(!m)return;m.nextMatId=v||'';save();renderSwitch();}
+function setMatSwitchDate(id,v){const m=matById(id);if(!m)return;m.switchDate=v||'';save();recalcAll();renderSwitch();}
+// 「○枚使ったら切替」＝入力した時点の在庫を基準(base)に記録し、base−現在庫 が枚数以上でお知らせ
+function setMatSwitchQty(id,v){const m=matById(id);if(!m)return;
+  const n=Number(v||0);
+  if(n>0){ const r=computeStock().find(x=>x.m.id===id); m.switchQtyBase=r?Math.round(r.stock):Number(m.initStock||0); m.switchAfterQty=n; }
+  else { m.switchAfterQty=0; m.switchQtyBase=null; }
+  save();recalcAll();renderSwitch();
+}
 // BOM上の from資材の割り当てを to資材へ付け替え（真空区分などの袋の差し替え）
 function switchMaterialBom(fromId,toId){
   let n=0;
@@ -1084,6 +1142,7 @@ function switchToNext(fromId){
   if(!confirm(m.name+' の使用を「'+to.name+'」へ切り替えます。\n・BOM（真空区分などの袋）を '+to.name+' に付け替え\n・'+m.name+' は「発注しない（使い切り）」のまま残します\nよろしいですか？'))return;
   const n=switchMaterialBom(fromId,to.id);
   m.noReorder=1;   // 旧資材は今後発注しない
+  m.switchDate=''; m.switchAfterQty=0; m.switchQtyBase=null;   // 切替条件はリセット（もう切替済み）
   save();recalcAll();renderBom();renderMat();renderSwitch();
   alert(to.name+' に切り替えました（BOM '+n+'件を付け替え）。\n\n'+to.name+' の在庫がまだなら「🔢在庫」で実数を入れてください。');
 }
@@ -1113,12 +1172,17 @@ function renderSwitch(){
   tb.innerHTML=S.materials.map(m=>{
     const r=byId[m.id]||{stock:0};
     const nx=m.nextMatId?matById(m.nextMatId):null;
-    return `<tr>
+    let qtyNote='';
+    if(Number(m.switchAfterQty||0)>0){ const base=(m.switchQtyBase!=null?Number(m.switchQtyBase):Number(m.initStock||0));
+      const used=Math.max(0,base-r.stock); qtyNote='<br><span class="muted" style="font-size:10px">使用 '+fmt(used)+' / '+fmt(m.switchAfterQty)+'枚</span>'; }
+    return `<tr${r.switchDue?' style="background:#fff7ed"':''}>
       <td class="l muted">${esc(m.cat||'')}</td>
-      <td class="l">${esc(m.name)}${m.noReorder?' <span class="tag other">発注しない</span>':''}</td>
-      <td style="font-weight:700">${fmt(r.stock)}${m.stockAdj?' <span class="muted" style="font-size:10px" title="手入力補正">✎</span>':''}</td>
+      <td class="l">${esc(m.name)}${m.noReorder?' <span class="tag other">発注しない</span>':''}${r.switchDue?' <span class="tag tuki">切替時期</span>':''}</td>
+      <td style="font-weight:700">${fmt(r.stock)}${m.stockAdj?' <span class="muted" style="font-size:10px" title="棚卸再確認で補正'+(m.stockAdjBy?(' / '+esc(m.stockAdjBy)):'')+'">✎</span>':''}</td>
       <td><input type="checkbox" ${m.noReorder?'checked':''} onchange="setMat('${m.id}','noReorder',this.checked?1:0);renderSwitch();recalcAll()" style="width:18px;height:18px"></td>
       <td class="l"><select style="width:180px" onchange="setMatNext('${m.id}',this.value)">${opts(m.nextMatId||'')}</select></td>
+      <td class="l"><input type="date" value="${m.switchDate||''}" onchange="setMatSwitchDate('${m.id}',this.value)" style="width:140px"></td>
+      <td><input class="cell" type="number" min="0" placeholder="枚数" value="${m.switchAfterQty||''}" onchange="setMatSwitchQty('${m.id}',this.value)">${qtyNote}</td>
       <td class="l">${nx?'<button class="btn warn small" onclick="switchToNext(\''+m.id+'\')">▶ 今すぐ '+esc(nx.name)+' に切替</button> ':''}<button class="btn sec small" onclick="openCountDlg('${m.id}')">🔢在庫</button></td>
     </tr>`;
   }).join('');
@@ -1386,6 +1450,7 @@ function initUI(){
   document.getElementById('safetyDays').value=S.settings.safetyDays;
   document.getElementById('scrapAlertPct').value=S.settings.scrapAlertPct;
   if(!document.getElementById('st_month').value){const b=(S.settings.baseDate||todayStr()).slice(0,7);document.getElementById('st_month').value=b;}
+  {const by=document.getElementById('st_by'); if(by&&!by.value) by.value=S.settings.lastStockBy||'';}
   if(S.live&&S.live.isLive){document.getElementById('srcbadge').className='badge live';document.getElementById('srcbadge').textContent='🟢 発注書ライブ';
     document.getElementById('asof').textContent='取得 '+(S.live.asOf||'');}
   refreshMatSelects();renderDash();renderUsage();renderOrders();renderMat();renderBom();renderStock();renderBackups();renderSwitch();
