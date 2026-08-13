@@ -57,6 +57,12 @@
   /* ② 午前／午後の時間帯ボタン（選択中＝青） */
   .zone-off-panel .zop-btn.slot-btn{ padding:8px 22px; font-size:15px; }
   .zone-off-panel .zop-btn.slot-btn.sel{ background:#184f95; border-color:#184f95; color:#fff; }
+  /* ② 確認（ロック）ボタン＝午前/午後の下。編集中＝緑／ロック中＝赤。 */
+  .slot-panel .lock-btn{ appearance:none; cursor:pointer; font-family:inherit; font-size:15px; font-weight:800; border:2px solid #0ca30c; background:#eafbea; color:#0a7a0a; padding:9px 14px; border-radius:9px; width:100%; }
+  .slot-panel .lock-btn.locked{ border-color:#d03b3b; background:#fdecec; color:#c02a2a; }
+  .slot-panel .lock-note{ font-size:11px; font-weight:700; color:#8a8f98; text-align:center; }
+  /* ② ロック中はボード全体を薄い赤枠で示し、うっかり操作しても崩れないことを見せる */
+  body.haichi-locked .board-photo{ box-shadow:0 0 0 3px rgba(208,59,59,.35); border-radius:8px; }
   /* ① 配置図を3カラム（左＝工程/時間帯・中央＝配置図・右＝操作）に。板が大きくなりすぎないよう中央を制限。 */
   .haichi-3col{ display:grid; grid-template-columns:210px minmax(0,1fr) 190px; gap:14px; align-items:start; margin-bottom:8px; }
   .haichi-3col .hc-left, .haichi-3col .hc-right{ display:flex; flex-direction:column; gap:10px; }
@@ -182,6 +188,9 @@
           <button type="button" class="zop-btn slot-btn" id="btn-am" onclick="setSlot('AM')">午前</button>
           <button type="button" class="zop-btn slot-btn" id="btn-pm" onclick="setSlot('PM')">午後</button>
         </div>
+        <!-- ② 確認（ロック）：配置が決まったら「確認」でロック。午前/午後は見られるが、それ以外は触れない。もう一度押すと編集に戻る。 -->
+        <button type="button" class="lock-btn" id="lock-btn" onclick="haichiToggleLock_()">✏️ 編集中</button>
+        <div class="lock-note" id="lock-note">配置を決めたら「確認」でロック</div>
       </div>
     </div>
 
@@ -192,7 +201,7 @@
 
     <!-- 右カラム：操作 -->
     <div class="hc-right">
-      <button class="action" onclick="autoAssign('pattern')" title="優先番号順・同番号はランダム">🧩 自動配置</button>
+      <button class="action" onclick="haichiUserAutoAssign_()" title="優先番号順・同番号はランダム">🧩 自動配置</button>
       <input type="hidden" id="save-ampm" value="AM">
       <button class="action" style="background:#184f95;" onclick="saveBoardImage()">🖼️ 画像で保存</button>
       <span id="save-status" style="font-size:12px;color:var(--text2);"></span>
@@ -385,6 +394,29 @@ var TOOL_LS_OK = false; try{ if(window.localStorage){ window.localStorage.getIte
 function lsGet_(k){ if(!TOOL_LS_OK) return null; try{ var v = window.localStorage.getItem(k); return v ? JSON.parse(v) : null; }catch(_e){ return null; } }
 function lsSet_(k,v){ if(!TOOL_LS_OK) return; try{ window.localStorage.setItem(k, JSON.stringify(v)); }catch(_e){} }
 function toolDateKey_(){ var d = new Date(); return d.getFullYear()+'/'+(d.getMonth()+1)+'/'+d.getDate(); }
+
+/* ② 確認（ロック）：配置が決まったら「確認」でロック。ロック中は午前/午後の切替・画像保存だけ可、
+   配置の変更（人の移動・入替・自動配置・工程トグル）は不可。もう一度押すと編集に戻る。
+   状態はこのPCに当日だけ保存（翌日は自動で編集に戻る）。 */
+var HAICHI_LOCKED = false;
+function haichiLockKey_(){ return 'haichi_locked_' + toolDateKey_(); }
+function haichiApplyLockUI_(){
+  var btn = document.getElementById('lock-btn'), note = document.getElementById('lock-note');
+  if(btn){ btn.textContent = HAICHI_LOCKED ? '🔒 確認（ロック中）' : '✏️ 編集中'; btn.classList.toggle('locked', HAICHI_LOCKED); }
+  if(note){ note.textContent = HAICHI_LOCKED ? 'ロック中：もう一度押すと編集できます' : '配置を決めたら「確認」でロック'; }
+  try{ document.body.classList.toggle('haichi-locked', HAICHI_LOCKED); }catch(_e){}
+}
+function haichiToggleLock_(){ HAICHI_LOCKED = !HAICHI_LOCKED; lsSet_(haichiLockKey_(), HAICHI_LOCKED ? 1 : 0); haichiApplyLockUI_(); }
+// 編集操作のガード：ロック中は false（＝操作をキャンセル）＋ロックボタンを少し光らせて気づかせる。
+function haichiEditAllowed_(){
+  if(!HAICHI_LOCKED) return true;
+  var b = document.getElementById('lock-btn');
+  if(b){ b.style.transition = 'transform .1s'; b.style.transform = 'scale(1.07)'; setTimeout(function(){ b.style.transform = ''; }, 150); }
+  return false;
+}
+// 自動配置ボタン（ユーザー操作）はロック中は無効。setSlot等の内部呼び出しは従来どおり動く。
+function haichiUserAutoAssign_(){ if(!haichiEditAllowed_()) return; autoAssign('pattern'); }
+window.addEventListener('DOMContentLoaded', function(){ HAICHI_LOCKED = !!lsGet_(haichiLockKey_()); haichiApplyLockUI_(); });
 // 配置優先のマス値：workerId × skillKey → 数値(優先番号) / '×'(不可) / ''(空欄)
 function prioRaw(wid, skillKey){ return (prio[wid] && prio[wid][skillKey]!=null) ? String(prio[wid][skillKey]).trim() : ''; }
 function prioNumOf(wid, skillKey){ const v = prioRaw(wid, skillKey); if(v==='' || /^[×xX]$/.test(v)) return null; const n = parseInt(v.replace(/[^0-9]/g,''),10); return (!isNaN(n) && n>0) ? n : null; }
@@ -472,6 +504,7 @@ function zoneOffRow_(gid, label){
     '</div></div>';
 }
 function toggleOffGroup_(gid, on){
+  if(!haichiEditAllowed_()) return;   // ② ロック中は工程トグルも不可
   var ids = OFF_GROUPS[gid] || [gid];
   ids.forEach(function(id){ if(on) delete offZones[id]; else offZones[id] = true; });
   lsSet_('haichi_tool_offzones_'+toolDateKey_(), offZones);   // 単体で開いたとき用（本日分・翌日は自動で消える）
@@ -505,6 +538,7 @@ function updateStats(){
 
 /* ===================== モーダル：配置済みの人 ===================== */
 function openWorkerMenu(wid){
+  if(!haichiEditAllowed_()) return;   // ② ロック中は人の移動メニューを開かない
   const w = worker(wid);
   const curZone = zoneOf(wid);
   const modal = document.getElementById('modal');
@@ -537,6 +571,7 @@ function openWorkerMenu(wid){
 }
 
 function openSlotMenu(zoneId, idx){
+  if(!haichiEditAllowed_()) return;   // ② ロック中は空き枠メニューを開かない
   const z = ZONES.find(z=>z.id===zoneId);
   const modal = document.getElementById('modal');
   const candidates = workers.filter(w=>!isAssigned(w.id) && w.attend)
@@ -972,6 +1007,21 @@ function applyLiveData(payload){
       var anyMatch = workers.some(isOn);
       if(anyMatch){ workers.forEach(function(w){ w.attend = isOn(w); }); }
     }
+    // ★ 応援（本日〇＝shift.support）：力量表に無いので、ここでフレッシュな作業者として追加する。
+    //   スキル空＝新人扱い＝自動配置で基本「はつり（コンベア）」へ入る（村中/平田の隣）。力量表は汚さない。
+    if(shift && Array.isArray(shift.support) && shift.support.length){
+      var haveKeysC = {};
+      workers.forEach(function(w){ var k = normNameC_(w.name); if(k) haveKeysC[k] = true; });
+      shift.support.forEach(function(nm){
+        nm = String(nm || '').trim(); if(!nm) return;
+        var nk = normNameC_(nm); if(nk && haveKeysC[nk]) return;   // 既に居る同名は重複させない
+        if(nk) haveKeysC[nk] = true;
+        var id = 'w' + workers.length;
+        workers.push({ id:id, name:nm, attend:true, shiftStatus:'応援', _support:true });
+        skills[id] = {}; ZONES.forEach(function(z){ skills[id][z.skill] = ''; });                 // スキル空＝フレッシュ＝はつり
+        prio[id] = {};   ZONES.forEach(function(z){ prio[id][z.skill] = seedPrioFromLevel_(''); });
+      });
+    }
     // シフトのセル文字（〇/休/午後休/時間指定 等）を各人に反映＝力量表の出勤チェックの横に表示
     if(shift && shift.status && typeof shift.status === 'object'){
       var statusNorm = {};
@@ -1172,6 +1222,7 @@ function saveBoardImage(){
     return null;
   }
   board.addEventListener('pointerdown', function(e){
+    if(HAICHI_LOCKED) return;   // ② ロック中はドラッグ開始しない（うっかり移動を防ぐ）
     var wel = widElFrom(e.target);
     if(!wel) return;
     drag = { wid: wel.dataset.wid, x: e.clientX, y: e.clientY, moved:false, ghost:null };

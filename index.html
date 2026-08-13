@@ -372,6 +372,7 @@
   .nz-row .cust .bunrui.arai{ background:#2a9d8f; }
   .nz-row .cust .bunrui.shinku{ background:#4a3aa7; }
   .nz-row .cust .bunrui.tsuchi{ background:#a76a00; }
+  .nz-row .cust .bunrui.b-kg{ background:#556070; }   /* ④ 個人注文/その他サンプル＝㎏バッジ */
   /* 2行目：合計／前日／本日／のこり 横4分割。各セル＝ラベル＋c/s（大）＋kg（小） */
   .nz-row .qc4{ display:grid; grid-template-columns:repeat(4,1fr); gap:6px;}
   .nz-row .qc4 .qi{ background:var(--page); border-radius:8px; padding:4px 5px 5px; text-align:center; line-height:1.1;}
@@ -503,6 +504,18 @@
   .seisan-card .ampm-badge.PM{ background:#a4632a;}
   .seisan-card .del{ margin-left:auto; appearance:none; cursor:pointer; border:none; background:transparent; color:var(--muted); font-size:18px; line-height:1; padding:2px 4px;}
   .seisan-card .del:hover{ color:var(--red);}
+  /* ③ カード上の 午前/午後 切替（あとから変更可） */
+  .seisan-ampm-toggle{ display:flex; gap:0; margin-left:6px;}
+  .seisan-ampm-toggle .sa2{ appearance:none; cursor:pointer; font-family:inherit; font-size:12px; font-weight:800; border:1px solid var(--grid); background:#fff; color:var(--text-secondary); padding:4px 11px;}
+  .seisan-ampm-toggle .sa2:first-child{ border-radius:8px 0 0 8px;}
+  .seisan-ampm-toggle .sa2:last-child{ border-radius:0 8px 8px 0; border-left:none;}
+  .seisan-ampm-toggle .sa2.sel{ background:var(--blue-deep); border-color:var(--blue-deep); color:#fff;}
+  /* ③ 収穫舟数（本日の荷造り舟数・実績へ加算） */
+  .seisan-funes-row{ display:flex; align-items:center; gap:8px; background:#eef4fb; border:1px solid var(--border); border-radius:10px; padding:8px 12px;}
+  .seisan-funes-row .fl{ font-size:14px; font-weight:800; color:var(--blue-deep);}
+  .seisan-funes-row .seisan-funes-input{ width:64px; font-family:inherit; font-size:18px; font-weight:800; text-align:right; padding:5px 8px; border:1px solid var(--grid); border-radius:7px; font-variant-numeric:tabular-nums;}
+  .seisan-funes-row .fu{ font-size:13px; font-weight:800; color:var(--text-secondary);}
+  .seisan-funes-row .fnote{ margin-left:auto; font-size:11px; font-weight:700; color:var(--muted);}
   .seisan-grid{ display:grid; grid-template-columns:1fr 1fr; gap:6px 12px;}
   .seisan-grp-h{ grid-column:1/-1; font-size:11px; font-weight:800; color:var(--muted); border-bottom:1px dashed var(--grid); padding-bottom:2px; margin-top:2px;}
   .seisan-size{ display:flex; align-items:center; gap:6px;}
@@ -742,7 +755,7 @@
       <div id="seisan-list" class="seisan-list"><!-- 生産者カードをJSで生成 --></div>
       <div class="seisan-empty" id="seisan-empty">まだ生産者が登録されていません。上の欄に生産者名を入れて「＋ 生産者を追加」を押してください。</div>
 
-      <div class="seisan-hint"><b>午前／午後</b>を選んでから<b>生産者のボタン</b>を押すと、その生産者のカードが追加されます。洗い・土付きの各サイズは <b>c/s（ケース）</b> で入れると <b>出来高kg＝c/s×サイズ</b> を自動計算。<b>半端</b>と<b>C・S</b>は<b>㎏で直接</b>入力します（合計＝洗い＋土付き＋半端、C・Sは別集計）。ここは<b>電子黒板の実績数量には含めません</b>（生産者ごとの記録用）。記録はGoogleスプレッドシート「生産者記録」に日付ごと保存され、他のPC・翌日でも残ります。</div>
+      <div class="seisan-hint"><b>午前／午後</b>を選んでから<b>生産者のボタン</b>を押すと、その生産者のカードが追加されます（午前／午後は<b>カード上のボタンで後から変更</b>できます）。<b>🚢 収穫舟数</b>は生産者が持ち込んだ舟数で、<b>電子黒板の「本日の荷造り舟数」と「本日実績（荷造り舟数）」の両方に加算</b>されます（＝本日の歩留まりに反映）。洗い・土付きの各サイズは <b>c/s（ケース）</b> で入れると <b>出来高kg＝c/s×サイズ</b> を自動計算。<b>半端</b>と<b>C・S</b>は<b>㎏で直接</b>入力します（合計＝洗い＋土付き＋半端、C・Sは別集計）。c/s・出来高kgは生産者ごとの記録用です。記録はGoogleスプレッドシート「生産者記録」に日付ごと保存され、他のPC・翌日でも残ります。</div>
     </div>
   </div><!-- /view-seisan -->
 
@@ -967,23 +980,26 @@
         const prevCs  = nzMadePrevEff(key);           // 前日作成分（自動＝過去日合計／手入力で上書き可）
         const todayCs = nzMadeToday(key);             // 本日作った分（手入力）
         const restCs  = totalCs - prevCs - todayCs;   // のこり（自動）
+        const isKg = o.unit === 'kg';                 // ④ 個人注文/その他サンプル＝kg単位（c/sではなく㎏で表示・入数1）
+        const U    = isKg ? '㎏' : 'c/s';             //   主表示の単位
         const csTxt = (v) => v<=0 ? (v===0 ? '0' : '先行 +'+nzFmtKg(-v)) : nzFmtKg(v);
         const kgTxt = (cs) => nzFmtKg(cs * nyusu);    // ケース→kg（自動・0以上）
+        const kg2   = (cs) => isKg ? '' : `${kgTxt(cs)}<small>kg</small>`;   // ④ kg列は主表示がkgなので副kgは省く
         const restKgTxt = (cs) => cs<=0 ? (cs===0 ? '0' : '先行 +'+nzFmtKg(-cs * nyusu)) : nzFmtKg(cs * nyusu);  // のこりkg（先行はプラス表記）
         const row = document.createElement('div');
         row.className = 'nz-row' + (o.st==='sakusei' ? ' is-done':'') + (o.isNew ? ' is-new':'');
         row.innerHTML =
           `<div class="nz-r1">`+
             `<div class="idx">${idx+1}</div>`+
-            `<div class="cust">${o.cust}${o.bunrui?`<span class="bunrui ${nzBunruiClass(o.bunrui)}">${o.bunrui}</span>`:''}${o.isNew?`<span class="new-flag">NEW</span>`:''}</div>`+
-            `<div class="nyusu">${o.nyusu?`入数 ${o.nyusu}<small>㎏</small>`:`<small>入数 —</small>`}</div>`+
+            `<div class="cust">${o.cust}${o.bunrui?`<span class="bunrui ${nzBunruiClass(o.bunrui)}">${o.bunrui}</span>`:''}${isKg?`<span class="bunrui b-kg">㎏</span>`:''}${o.isNew?`<span class="new-flag">NEW</span>`:''}</div>`+
+            `<div class="nyusu">${isKg?`<small>㎏で入力</small>`:(o.nyusu?`入数 ${o.nyusu}<small>㎏</small>`:`<small>入数 —</small>`)}</div>`+
             `<button class="nz-status" data-st="${o.st}"><span class="mk">${s.mk}</span>${s.label}</button>`+
           `</div>`+
           `<div class="qc4">`+
-            `<div class="qi total"><span class="ql">合計</span><span class="cs">${nzFmtKg(totalCs)}<small>c/s</small></span><span class="qkg">${kgTxt(totalCs)}<small>kg</small></span></div>`+
-            `<div class="qi prev"><span class="ql">前日</span><input class="q-prev" type="number" min="0" step="1" inputmode="numeric" value="${prevCs||''}" placeholder="0" title="基本は自動。念のため手入力で修正できます"><span class="qkg prev-kg">${kgTxt(prevCs)}<small>kg</small></span></div>`+
-            `<div class="qi made"><span class="ql">本日</span><input class="q-made" type="number" min="0" step="1" inputmode="numeric" value="${todayCs||''}" placeholder="0"><span class="qkg made-kg">${kgTxt(todayCs)}<small>kg</small></span></div>`+
-            `<div class="qi rest${restCs<=0?' done':''}"><span class="ql">のこり</span><span class="cs"><b class="rest-v">${csTxt(restCs)}</b><small>c/s</small></span><span class="qkg rest-kg">${restKgTxt(restCs)}<small>kg</small></span></div>`+
+            `<div class="qi total"><span class="ql">合計</span><span class="cs">${nzFmtKg(totalCs)}<small>${U}</small></span><span class="qkg">${kg2(totalCs)}</span></div>`+
+            `<div class="qi prev"><span class="ql">前日</span><input class="q-prev" type="number" min="0" step="1" inputmode="numeric" value="${prevCs||''}" placeholder="0" title="基本は自動。念のため手入力で修正できます"><span class="qkg prev-kg">${kg2(prevCs)}</span></div>`+
+            `<div class="qi made"><span class="ql">本日</span><input class="q-made" type="number" min="0" step="1" inputmode="numeric" value="${todayCs||''}" placeholder="0"><span class="qkg made-kg">${kg2(todayCs)}</span></div>`+
+            `<div class="qi rest${restCs<=0?' done':''}"><span class="ql">のこり</span><span class="cs"><b class="rest-v">${csTxt(restCs)}</b><small>${U}</small></span><span class="qkg rest-kg">${isKg?'':`${restKgTxt(restCs)}<small>kg</small>`}</span></div>`+
           `</div>`;
         row.querySelector('.nz-status').onclick = () => {
           NZ_ORDERS[gi].st = NZ_ST[NZ_ORDERS[gi].st].next;
@@ -999,9 +1015,9 @@
           const rv = totalCs - p - t;
           const rline = row.querySelector('.qi.rest'); const rb = row.querySelector('.rest-v');
           if(rline && rb){ rline.classList.toggle('done', rv<=0); rb.textContent = csTxt(rv); }
-          const pk = row.querySelector('.prev-kg'); if(pk) pk.innerHTML = kgTxt(p)+'<small>kg</small>';
-          const mk = row.querySelector('.made-kg'); if(mk) mk.innerHTML = kgTxt(t)+'<small>kg</small>';
-          const rk = row.querySelector('.rest-kg'); if(rk) rk.innerHTML = restKgTxt(rv)+'<small>kg</small>';
+          const pk = row.querySelector('.prev-kg'); if(pk) pk.innerHTML = isKg ? '' : kgTxt(p)+'<small>kg</small>';
+          const mk = row.querySelector('.made-kg'); if(mk) mk.innerHTML = isKg ? '' : kgTxt(t)+'<small>kg</small>';
+          const rk = row.querySelector('.rest-kg'); if(rk) rk.innerHTML = isKg ? '' : restKgTxt(rv)+'<small>kg</small>';
         };
         if(prevInp){
           prevInp.addEventListener('click', (e)=> e.stopPropagation());
@@ -1137,9 +1153,9 @@
       var v = Number(day.targetOvr[dk])||0;
       try{ localStorage.setItem('board_target_ovr_'+dk, String(v)); }catch(e){}
       if(typeof boardData==='object'){ boardData.targetOverride=v; boardData.targetFunes=v; }
-      if(typeof haichiSetText_==='function'){ haichiSetText_('t-target-funes', haichiNum_(v)); haichiSetText_('t-target-sub','当日変更（発注書の予定を上書き）'); }
-      if(typeof updateTargetKg==='function') updateTargetKg();
-      if(typeof haichiCalcFinish==='function') haichiCalcFinish();
+      if(typeof haichiSetText_==='function') haichiSetText_('t-target-sub','当日変更（発注書の予定を上書き）');
+      if(typeof haichiRefreshTargets_==='function') haichiRefreshTargets_();   // ③ 生産者の収穫舟数込みで再表示
+      else if(typeof haichiSetText_==='function'){ haichiSetText_('t-target-funes', haichiNum_(v)); }
     }
     // ② 午前区切り
     if(day.amSnap && day.amSnap[dk]){
@@ -1293,7 +1309,7 @@
           const id = d.date+'|'+o.cust+'|'+(o.bunrui||'')+'|'+(o.nyusu||0);
           NZ_ORDERS.push({
             date:'d'+i, _id:id, cust:o.cust, bunrui:o.bunrui||'', nyusu:o.nyusu||0,
-            qty:o.qty||0, kg:o.kg||0, st: statusStore[id] || 'mikettei',
+            qty:o.qty||0, kg:o.kg||0, unit:o.unit||'', st: statusStore[id] || 'mikettei',   // ④ unit==='kg' は個人注文/その他サンプル（kg表示）
             isNew: !!o.isNew   // ③ 発注書の変更検知はGAS側で判定（全PC共通・追加/数量変更のみNEW）
           });
         });
@@ -1532,9 +1548,11 @@
     var lbl=document.getElementById('seisan-date-label'); if(lbl) lbl.textContent='（'+SEISAN.date+'）';
     seisanRenderNameBtns();
     seisanLoadLocal();
+    seisanApplyToBoard_();   // ③ ローカル保存の収穫舟数をまず板へ反映（タブ未オープンでも算入）
     seisanLoadLive();
   }
   function seisanOnOpen(){ seisanInit(); seisanRender(); }
+  window.addEventListener('DOMContentLoaded', seisanInit);   // ③ 起動時に生産者データを読み込む（タブを開かなくても本日の荷造り舟数・実績へ算入）
   // ⑤ 生産者名ボタンを生成（決まった5名）。押すと、選択中の時間帯でその生産者を追加。
   function seisanRenderNameBtns(){
     var box=document.getElementById('seisan-namebtns'); if(!box) return;
@@ -1598,6 +1616,29 @@
     if(v>0) p.rows[key]=v; else delete p.rows[key];
     seisanRenderTotals(); seisanPushSave();
   }
+  // ③ 収穫舟数：入力（本日の荷造り舟数・本日実績へ加算＝歩留まりに反映）
+  function seisanSetFunes(i, val){
+    var p=SEISAN.list[i]; if(!p) return;
+    var v=Math.max(0, Math.round(Number(val)||0));
+    if(v>0) p.funes=v; else delete p.funes;
+    seisanPushSave();
+    seisanApplyToBoard_();   // 板の舟数・実績を更新
+  }
+  // ③ 午前/午後をあとから切替（午前に持ってきて午後に処理する等）
+  function seisanSetAmpm(i, v){
+    var p=SEISAN.list[i]; if(!p) return;
+    var nx=(v==='PM'?'PM':'AM'); if(p.ampm===nx) return;
+    for(var j=0;j<SEISAN.list.length;j++){ if(j!==i && SEISAN.list[j].name===p.name && SEISAN.list[j].ampm===nx){ seisanSetStatus('「'+p.name+'（'+(nx==='PM'?'午後':'午前')+'）」は既に登録済みです','#a76a00'); return; } }
+    p.ampm=nx; seisanRender(); seisanPushSave(); seisanApplyToBoard_();
+  }
+  // ③ 全生産者の収穫舟数の合計（板の舟数へ加算する値）
+  function seisanTotalFunes(){ var s=0; (SEISAN.list||[]).forEach(function(p){ s+=Number(p.funes)||0; }); return s; }
+  // ③ 収穫舟数の変更を電子黒板の「本日の荷造り舟数」「本日実績」へ反映
+  function seisanApplyToBoard_(){
+    seisanRenderTotals();
+    try{ if(typeof haichiRefreshTargets_==='function') haichiRefreshTargets_(); }catch(e){}
+    try{ if(typeof updateJissekiFromOps==='function') updateJissekiFromOps(); }catch(e){}
+  }
   function seisanRenderTotals(){
     var Tmain=0, Tc=0, Ts=0, Tcs=0;
     SEISAN.list.forEach(function(p){ var o=seisanKgSplit(p); Tmain+=o.main; Tc+=o.C; Ts+=o.S; Tcs+=seisanFunesOf(p); });
@@ -1627,7 +1668,17 @@
     wrap.innerHTML='';
     SEISAN.list.forEach(function(p,i){
       var card=document.createElement('div'); card.className='seisan-card';
-      var html='<div class="top"><span class="nm"></span><span class="ampm-badge '+(p.ampm==='PM'?'PM':'AM')+'">'+(p.ampm==='PM'?'午後':'午前')+'</span><button class="del" title="削除">✕</button></div>';
+      // ③ 午前/午後はカード上で後から切替可（あとから午前/午後を選べる）。
+      var html='<div class="top"><span class="nm"></span>'+
+        '<span class="seisan-ampm-toggle">'+
+          '<button type="button" class="sa2'+(p.ampm!=='PM'?' sel':'')+'" data-ampm="AM">午前</button>'+
+          '<button type="button" class="sa2'+(p.ampm==='PM'?' sel':'')+'" data-ampm="PM">午後</button>'+
+        '</span>'+
+        '<button class="del" title="削除">✕</button></div>';
+      // ③ 収穫舟数＝生産者が持ち込んだ舟数。本日の荷造り舟数・本日実績（舟数）に加算＝歩留まりに反映。
+      html+='<div class="seisan-funes-row"><span class="fl">🚢 収穫舟数</span>'+
+        '<input class="seisan-funes-input" type="number" min="0" step="1" inputmode="numeric" value="'+(Number(p.funes)||'')+'" placeholder="0"><span class="fu">舟</span>'+
+        '<span class="fnote">→ 本日の荷造り舟数・実績に加算</span></div>';
       html+='<div class="seisan-grid">';
       var lastGrp='';
       SEISAN_SIZES.forEach(function(sz){
@@ -1649,6 +1700,12 @@
       card.innerHTML=html;
       card.querySelector('.nm').textContent=p.name;
       card.querySelector('.del').onclick=function(){ seisanDel(i); };
+      // ③ 収穫舟数の入力
+      var fInp=card.querySelector('.seisan-funes-input');
+      if(fInp){ fInp.addEventListener('change', function(){ seisanSetFunes(i, fInp.value); }); }
+      // ③ 午前/午後の後からの切替
+      var amBtns=card.querySelectorAll('.seisan-ampm-toggle .sa2');
+      for(var a=0;a<amBtns.length;a++){ (function(btn){ btn.onclick=function(){ seisanSetAmpm(i, btn.getAttribute('data-ampm')); }; })(amBtns[a]); }
       var rows=card.querySelectorAll('.seisan-size');
       for(var r=0;r<rows.length;r++){ (function(row){ var key=row.getAttribute('data-key'); var inp=row.querySelector('input'); inp.addEventListener('change', function(){ seisanSetCell(i, key, inp.value); }); })(rows[r]); }
       wrap.appendChild(card);
@@ -1662,8 +1719,8 @@
   var _seisanDirty=false;   // このPCで入力したがまだクラウドに保存できていない＝まとめ取得で上書きしない
   function seisanApplyLive_(data){
     if(data && data.date===SEISAN.date && Array.isArray(data.list) && data.list.length){
-      SEISAN.list = data.list.map(function(p){ var rows={}; if(p.rows&&typeof p.rows==='object'){ Object.keys(p.rows).forEach(function(k){ rows[k]=Number(p.rows[k])||0; }); } return { name:String(p.name), ampm:(p.ampm==='PM'?'PM':'AM'), rows:rows }; });
-      seisanSaveLocal(); seisanRender();
+      SEISAN.list = data.list.map(function(p){ var rows={}; if(p.rows&&typeof p.rows==='object'){ Object.keys(p.rows).forEach(function(k){ rows[k]=Number(p.rows[k])||0; }); } return { name:String(p.name), ampm:(p.ampm==='PM'?'PM':'AM'), rows:rows, funes:Number(p.funes)||0 }; });
+      seisanSaveLocal(); seisanRender(); seisanApplyToBoard_();   // ③ 収穫舟数を板へ反映
       var t=new Date(); seisanSetStatus('🟢 保存済み '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2),'var(--green)');
       return true;
     }
@@ -1906,13 +1963,24 @@
     boardData.targetFunes = (ovr != null) ? ovr : boardData.serverTarget;
     var j = s.jisseki || {};
     boardData.jissekiFunes = (typeof j.funes === 'number') ? j.funes : null;
-    // 上段（予測・予定）：本日の荷造り舟数
-    haichiSetText_('t-target-funes', boardData.targetFunes!=null ? haichiNum_(boardData.targetFunes) : '--');
+    // 上段（予測・予定）：本日の荷造り舟数（＝発注書 or 数量変更 ＋ 生産者の収穫舟数）
     haichiSetText_('t-target-sub', ovr!=null ? '当日変更（発注書の予定を上書き）' : '発注書より（本日の総舟数）');
-    updateTargetKg();   // ② 荷造りkg（予定）＝舟数×50
+    haichiRefreshTargets_();   // t-target-funes と 荷造りkg（予定）を生産者舟数込みで再計算
     // 下段（本日実績・現時点）は 圃場舟数＋本日荷造りの作った分 から自動計算（updateJissekiFromOps）
     updateJissekiFromOps();
     haichiCalcFinish();
+  }
+  // ③ 生産者の収穫舟数（板へ加算する値）。SEISANが未初期化でも0で安全に返す。
+  function seisanFunesForBoard(){ try{ return (typeof seisanTotalFunes==='function') ? seisanTotalFunes() : 0; }catch(e){ return 0; } }
+  // 本日の荷造り舟数（予定）＝ベース（発注書 or 数量変更） ＋ 生産者の収穫舟数
+  function boardTargetBase(){ return (boardData.targetFunes!=null) ? boardData.targetFunes : 0; }
+  function boardTargetTotal(){ return boardTargetBase() + seisanFunesForBoard(); }
+  function boardTargetIsSet(){ return (boardData.targetFunes!=null) || (seisanFunesForBoard() > 0); }
+  // ③ 本日の荷造り舟数（予定）と 荷造りkg（予定）を、生産者の収穫舟数を含めて再表示
+  function haichiRefreshTargets_(){
+    haichiSetText_('t-target-funes', boardTargetIsSet() ? haichiNum_(boardTargetTotal()) : '--');
+    updateTargetKg();
+    if(typeof haichiCalcFinish==='function') haichiCalcFinish();
   }
   // 本日実績（現時点）＝圃場から持ってきた舟数（荷造り舟数）／本日荷造りの作った分の合計kg／歩留まり(kg÷舟数)
   function opsTodayHojoFunes(){
@@ -1926,8 +1994,10 @@
       return kg;
     }catch(e){ return 0; }
   }
+  // 本日実績の荷造り舟数＝圃場から持ってきた舟数 ＋ 生産者の収穫舟数（③）
+  function jissekiFunesNow(){ return opsTodayHojoFunes() + seisanFunesForBoard(); }
   function updateJissekiFromOps(){
-    var funes = opsTodayHojoFunes();   // 荷造り舟数（実績）＝圃場から持ってきた舟数
+    var funes = jissekiFunesNow();     // 荷造り舟数（実績）＝圃場から持ってきた舟数 ＋ 生産者の収穫舟数
     var kg    = opsTodayMadeKg();      // 荷造りkg（実績）＝本日荷造りの作った分の合計kg
     boardData.jissekiFunes = funes;
     haichiSetText_('j-funes', haichiNum_(funes));
@@ -1969,9 +2039,9 @@
       if(note){ note.textContent='午前・午後は正午で自動的に区切ります（ボタンで手動区切りも可）。'; }
     }
   }
-  // 「午前をここまでにする」＝今の累計を午前として固定
+  // 「午前をここまでにする」＝今の累計を午前として固定（生産者の収穫舟数も含めた実績舟数で固定）
   function amMarkNow(){
-    amSaveSnap(opsTodayHojoFunes(), opsTodayMadeKg());
+    amSaveSnap(jissekiFunesNow(), opsTodayMadeKg());
     updateJissekiFromOps();
   }
   // ② 数量変更（当日）＝上の「本日の荷造り舟数」の予定を上書き（当日限り・localStorage保存）
@@ -1989,17 +2059,14 @@
     boardData.targetOverride = v; boardData.targetFunes = v;
     try{ localStorage.setItem(qtyTodayKey(), String(v)); }catch(e){}
     if(typeof nzDaySetTargetOvr_==='function') nzDaySetTargetOvr_(v);   // ★ 全PC共有（クラウド）へ
-    haichiSetText_('t-target-funes', haichiNum_(v));
     haichiSetText_('t-target-sub', '当日変更（発注書の予定を上書き）');
-    updateTargetKg();   // ② 荷造りkg（予定）も連動
-    haichiCalcFinish();
+    haichiRefreshTargets_();   // ② 舟数・荷造りkg（予定）を生産者の収穫舟数込みで再表示
     qtyToggleEdit();
   }
   // ② 荷造りkg（予定）＝本日の荷造り舟数 × 50kg（1舟=50kg）。数量変更でも連動。
   var KG_PER_FUNE = 50;   // 1舟あたりのkg（現場に合わせて変更可）
   function updateTargetKg(){
-    var tf = boardData.targetFunes;
-    haichiSetText_('t-target-kg', tf != null ? haichiNum_(tf * KG_PER_FUNE) : '--');
+    haichiSetText_('t-target-kg', boardTargetIsSet() ? haichiNum_(boardTargetTotal() * KG_PER_FUNE) : '--');
   }
   // ② センター人数（AM・PM）＝シフトの午前人数/午後人数（無ければ現時点の出勤者数で代用）
   function updateStaffCell(){
