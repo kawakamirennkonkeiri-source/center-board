@@ -176,7 +176,8 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
   <div class="tablewrap">
     <table id="stTable">
       <thead><tr>
-        <th class="l">資材</th><th>基準在庫</th><th>入庫</th><th>理論使用</th><th>理論在庫</th>
+        <th class="l">資材</th><th>基準在庫</th><th>入庫</th><th>理論使用</th>
+        <th title="棚卸再確認で入れた実数への補正（±）">再棚卸<br>(補正)</th><th title="基準在庫＋入庫−理論使用±再棚卸">理論在庫</th>
         <th>実在庫(入力)</th><th>ロス</th><th>破棄率</th><th class="l">判定 / 理由</th>
       </tr></thead>
       <tbody></tbody>
@@ -841,6 +842,7 @@ function renderStock(){
     const reason=prev?prev.reason||'':'';
     return `<tr>
       <td class="l">${r.name}</td><td>${fmt(r.base)}</td><td>${fmt(r.rec)}</td><td>${fmt(r.theo)}</td>
+      <td class="${r.adj?'state-wait':'muted'}">${r.adj?((r.adj>0?'+':'−')+fmt(Math.abs(r.adj))):'—'}</td>
       <td>${fmt(r.theoStock)}</td>
       <td><input class="cell" type="number" id="st_a_${i}" value="${actual}" oninput="stCalc(${i})"></td>
       <td id="st_loss_${i}" class="muted">—</td><td id="st_rate_${i}" class="muted">—</td>
