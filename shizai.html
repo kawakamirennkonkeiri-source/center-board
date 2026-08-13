@@ -159,17 +159,17 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
 <section id="view-stock" class="view">
   <div class="sec-title">月末棚卸（実数合わせ → 破棄率を自動学習）</div>
   <div class="hint">
-  月末に<b>実際の在庫数</b>を入力して「<b>この月の棚卸を確定</b>」すると：<br>
+  棚卸をした日を選び、<b>実際の在庫数</b>を入力して「<b>この日の棚卸を確定</b>」すると：<br>
   ① 差（理論在庫−実在庫＝ロス）から <b>破棄率＝ロス÷理論使用量</b> を自動計算し、資材マスタの破棄率を更新（回数を重ねるほど精度UP）。<br>
-  ② 実在庫を新しい基準在庫にリセット（＝ドリフトを毎月ゼロ点合わせ）／起点日を翌月へ／バックアップを保存。<br>
+  ② 実在庫を新しい基準在庫にリセット（＝ドリフトをゼロ点合わせ）／起点日を<b>棚卸日の翌日</b>へ／バックアップを保存。<br>
   ③ 破棄率が <b id="stAlertPct">10</b>%（設定で変更可）を超えたら「⚠️破棄が多すぎ」を表示。<b>理由を書くとアラートが消えます</b>。<br>
   <b>🔁 棚卸再確認</b>＝月の途中で数え直したいとき用。<b>実在庫を入力して押すと、現在庫だけを今の実数に合わせます</b>（破棄率の学習・起点日の更新・バックアップは行いません）。<br>
   どちらのボタンも、先に<b>担当者名</b>を入れてから押してください（誰が棚卸したか記録されます）。
   </div>
   <div class="row">
-    <div class="field"><label>対象月</label><input type="month" id="st_month"></div>
+    <div class="field"><label>棚卸を確認した日</label><input type="date" id="st_date"></div>
     <div class="field"><label>棚卸をする人（担当者名）<span style="color:var(--danger)">※必須</span></label><input id="st_by" placeholder="例：林田" style="width:150px"></div>
-    <button class="btn" onclick="commitStocktake()">✅ この月の棚卸を確定</button>
+    <button class="btn" onclick="commitStocktake()">✅ この日の棚卸を確定</button>
     <button class="btn sec" onclick="recheckStocktake()">🔁 棚卸再確認（在庫を今の実数に合わせる）</button>
     <span class="muted" id="st_meta"></span>
   </div>
@@ -832,7 +832,7 @@ function renderStock(){
     const theoStock=Number(r.m.initStock||0)+r.received-r.theo; // 破棄前の理論在庫
     return {mid:r.m.id,name:r.m.name,base:r.m.initStock,rec:r.received,theo:r.theo,theoStock};
   });
-  const month=document.getElementById('st_month').value;
+  const date=document.getElementById('st_date').value;const month=date?date.slice(0,7):'';
   const tb=document.querySelector('#stTable tbody');
   tb.innerHTML=stRows.map((r,i)=>{
     const prev=S.stocktakes.find(s=>s.month===month&&s.materialId===r.mid);
@@ -847,7 +847,7 @@ function renderStock(){
         <input id="st_r_${i}" placeholder="理由（破棄が多い時）" value="${reason}" style="width:170px;margin-left:6px"></td></tr>`;
   }).join('');
   stRows.forEach((r,i)=>stCalc(i));
-  document.getElementById('st_meta').textContent=month?('対象 '+month):'対象月を選んでください';
+  document.getElementById('st_meta').textContent=date?('棚卸確認日 '+date+'（'+month+' として記録）'):'棚卸を確認した日を選んでください';
 }
 function stCalc(i){
   const r=stRows[i];const av=document.getElementById('st_a_'+i).value;
@@ -862,11 +862,13 @@ function stCalc(i){
 }
 function stocktakeBy(){ return (document.getElementById('st_by')?document.getElementById('st_by').value:'' ).trim(); }
 function commitStocktake(){
-  const month=document.getElementById('st_month').value;
-  if(!month){alert('対象月を選んでください');return;}
+  const date=document.getElementById('st_date').value;
+  if(!date){alert('棚卸を確認した日を選んでください');return;}
+  const month=date.slice(0,7);
   const by=stocktakeBy();
   if(!by){alert('棚卸をする人（担当者名）を入れてください。');document.getElementById('st_by').focus();return;}
-  if(!confirm(month+' の棚卸を確定します。（担当：'+by+'）\n・破棄率を更新\n・実在庫を新しい基準在庫にリセット\n・集計起点日を翌月へ\nよろしいですか？'))return;
+  const newStart=addDaysStr(date,1);   // 起点日＝棚卸日の翌日
+  if(!confirm(date+' の棚卸を確定します。（担当：'+by+'）\n・破棄率を更新\n・実在庫を新しい基準在庫にリセット\n・集計起点日を '+newStart+' へ\nよろしいですか？'))return;
   const pct=Number(S.settings.scrapAlertPct||0);let updated=0;
   stRows.forEach((r,i)=>{
     const av=document.getElementById('st_a_'+i).value;if(av==='')return;
@@ -878,17 +880,16 @@ function commitStocktake(){
     const avg=hist.reduce((a,b)=>a+b,0)/hist.length;
     m.scrapRate=Math.round(avg*10)/10;
     m.initStock=actual;          // 実在庫を新基準に
-    m.stockAdj=0; m.stockAdjDate='';   // 月末で実数確定 → 途中の在庫補正はクリア
+    m.stockAdj=0; m.stockAdjDate='';   // 実数確定 → 途中の在庫補正はクリア
     // 既存の同月記録を置換
     S.stocktakes=S.stocktakes.filter(s=>!(s.month===month&&s.materialId===r.mid));
-    S.stocktakes.push({id:'ST'+Date.now()+'_'+i,month,materialId:r.mid,actual,loss,rate:Math.round(rate*10)/10,reason,by,ack:rate<=pct||!!reason});
+    S.stocktakes.push({id:'ST'+Date.now()+'_'+i,month,date,materialId:r.mid,actual,loss,rate:Math.round(rate*10)/10,reason,by,ack:rate<=pct||!!reason});
     updated++;
   });
   S.settings.lastStockBy=by;
-  // 起点日を翌月1日へ
-  const[y,mo]=month.split('-').map(Number);const nx=new Date(y,mo,1);const p=n=>String(n).padStart(2,'0');
-  S.settings.startDate=nx.getFullYear()+'-'+p(nx.getMonth()+1)+'-'+p(nx.getDate());
-  // ★ 月末バックアップ（荷造数クリア前の「締め」状態を丸ごと保存＝ローカル履歴＋スプレッドシート）
+  // 起点日を棚卸日の翌日へ
+  S.settings.startDate=newStart;
+  // ★ バックアップ（荷造数クリア前の「締め」状態を丸ごと保存＝ローカル履歴＋スプレッドシート。月キーで世代保存）
   createMonthlyBackup(month,by);
   // 使用(荷造数)は新期間ぶんに一旦クリア（実データはGAS再取得／手入力で入れ直し）
   S.funes={};
@@ -1449,7 +1450,7 @@ function initUI(){
   document.getElementById('baseDate').value=S.settings.baseDate||todayStr();
   document.getElementById('safetyDays').value=S.settings.safetyDays;
   document.getElementById('scrapAlertPct').value=S.settings.scrapAlertPct;
-  if(!document.getElementById('st_month').value){const b=(S.settings.baseDate||todayStr()).slice(0,7);document.getElementById('st_month').value=b;}
+  if(!document.getElementById('st_date').value){document.getElementById('st_date').value=S.settings.baseDate||todayStr();}
   {const by=document.getElementById('st_by'); if(by&&!by.value) by.value=S.settings.lastStockBy||'';}
   if(S.live&&S.live.isLive){document.getElementById('srcbadge').className='badge live';document.getElementById('srcbadge').textContent='🟢 発注書ライブ';
     document.getElementById('asof').textContent='取得 '+(S.live.asOf||'');}
