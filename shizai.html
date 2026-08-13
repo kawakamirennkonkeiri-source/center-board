@@ -829,8 +829,9 @@ function renderStock(){
   document.getElementById('stAlertPct').textContent=S.settings.scrapAlertPct;
   const rows=computeStock();
   stRows=rows.map(r=>{
-    const theoStock=Number(r.m.initStock||0)+r.received-r.theo; // 破棄前の理論在庫
-    return {mid:r.m.id,name:r.m.name,base:r.m.initStock,rec:r.received,theo:r.theo,theoStock};
+    // 破棄前の理論在庫（棚卸再確認で入れた実数＝stockAdj も反映）
+    const theoStock=Number(r.m.initStock||0)+r.received-r.theo+Number(r.m.stockAdj||0);
+    return {mid:r.m.id,name:r.m.name,base:r.m.initStock,rec:r.received,theo:r.theo,theoStock,adj:Number(r.m.stockAdj||0)};
   });
   const date=document.getElementById('st_date').value;const month=date?date.slice(0,7):'';
   const tb=document.querySelector('#stTable tbody');
@@ -889,8 +890,8 @@ function commitStocktake(){
   S.settings.lastStockBy=by;
   // 起点日を棚卸日の翌日へ
   S.settings.startDate=newStart;
-  // ★ バックアップ（荷造数クリア前の「締め」状態を丸ごと保存＝ローカル履歴＋スプレッドシート。月キーで世代保存）
-  createMonthlyBackup(month,by);
+  // ★ バックアップ（荷造数クリア前の「締め」状態を丸ごと保存＝ローカル履歴＋スプレッドシート。月キーで世代保存／実数シートは棚卸日で列見出し）
+  createMonthlyBackup(month,by,date);
   // 使用(荷造数)は新期間ぶんに一旦クリア（実データはGAS再取得／手入力で入れ直し）
   S.funes={};
   save();alert(updated+'品目を確定しました（担当：'+by+'）。基準在庫を更新し、起点日を '+S.settings.startDate+' にしました。\n\n💾 '+month+' のバックアップを保存しました（バックアップタブで確認・復元できます）。');
@@ -935,13 +936,14 @@ function backupSnapshot(){
   return JSON.stringify(c);
 }
 // 月末バックアップを作成（このPCの履歴に追加＋スプレッドシートへ追記）
-function createMonthlyBackup(month,who){
+//   date＝棚卸を確認した日（実数シートの列見出しに使う。省略時は月）
+function createMonthlyBackup(month,who,date){
   const snap=backupSnapshot(); const at=nowStr(); const by=(who||S.settings.deviceName||'');
   S.backups=(S.backups||[]).filter(b=>b.month!==month);
   S.backups.push({month,savedAt:at,savedBy:by,size:snap.length,json:snap});
   S.backups.sort((a,b)=> a.month<b.month?1:(a.month>b.month?-1:0));   // 新しい月が上
   if(S.backups.length>MAX_LOCAL_BACKUPS) S.backups=S.backups.slice(0,MAX_LOCAL_BACKUPS);
-  backupPushCloud(month,at,by,snap);
+  backupPushCloud(month,at,by,snap,date);
 }
 // その月の月末棚卸（実数）を「資材名＋実数」の表にして返す（見やすいスプレッドシート用）
 //   資材マスタの並び順で、その月に確定した実在庫(actual)だけを拾う
@@ -952,11 +954,11 @@ function stocktakeTableForMonth(month){
   }));
 }
 // スプレッドシートの「資材バックアップ」シートへ追記（上書きされない世代保存）
-function backupPushCloud(month,at,by,snap){
+function backupPushCloud(month,at,by,snap,date){
   const url=(S.settings.gasUrl||'').trim();
   if(!url){ setBkStatus('このPCに保存しました（スプレッドシート保存はGASのURL未設定のためスキップ）',''); return; }
-  // ① 復元用のJSON（従来どおり） ② 人が読める「実数」の表（資材=縦・実数=値）を同時に送る
-  const payload={action:'shizaiBackupSave',month:month,savedAt:at,by:by,json:snap,stock:stocktakeTableForMonth(month)};
+  // ① 復元用のJSON（従来どおり） ② 人が読める「実数」の表（資材=縦・実数=値）を同時に送る（列見出し＝棚卸日）
+  const payload={action:'shizaiBackupSave',month:month,date:(date||''),savedAt:at,by:by,json:snap,stock:stocktakeTableForMonth(month)};
   fetch(url,{method:'POST',body:JSON.stringify(payload)})
     .then(r=>r.json()).then(res=>{
       if(res&&res.ok) setBkStatus('☁ '+month+' をスプレッドシートに保存しました（'+at+'）','#137333');
