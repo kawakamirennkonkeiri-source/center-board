@@ -1071,12 +1071,14 @@
      ・起動時：クラウドから読み込み → NZS に反映（localStorageより優先）。空ならこのPCのローカル分で種まき。
      ・変更時：NZS更新＋localStorage控え＋クラウドへ“変更分だけ”送信（デバウンス）。
      ・5分ごとに再取得して他PCの変更も反映（未送信の変更があるときは取りに行かない）。 */
-  var NZS = { status:{}, prod:{}, prevOvr:{} };
+  // day＝黒板の当日限り値も全PC共有（数量変更/午前区切り/真空ピロートグル/終了目標時刻）
+  var NZS = { status:{}, prod:{}, prevOvr:{}, day:{ targetOvr:{}, amSnap:{}, offZones:{} } };
   var _nzsLoaded = false;      // クラウド初回読み込みが済んだか
   var _nzsDirty  = false;      // このPCで変更したがまだ送れていない
   var _nzsSaving = false;      // 送信中
   var _nzsTimer  = null;       // デバウンス用
-  var _nzsPatch  = { status:{}, prod:{}, prevOvr:{} };   // 未送信の変更分（貯めて一括送信）
+  var _nzsPatch  = { status:{}, prod:{}, prevOvr:{}, day:{ targetOvr:{}, amSnap:{}, offZones:{} } };   // 未送信の変更分（貯めて一括送信）
+  function nzPatchInit_(){ return { status:{}, prod:{}, prevOvr:{}, day:{ targetOvr:{}, amSnap:{}, offZones:{} } }; }
 
   function nzRowKey(o){ return o._id || (o.date + '|' + o.cust + '|' + (o.bunrui||'') + '|' + (o.nyusu||0)); }
   function nzTodayStr(){ var t = new Date(); return t.getFullYear() + '/' + (t.getMonth()+1) + '/' + t.getDate(); }
@@ -1102,6 +1104,61 @@
         localStorage.removeItem('nz_made_cs');
       }
     }catch(e){}
+    nzDayInitLocal_();
+  }
+
+  /* ===== day：黒板の「当日限り値」を全PC共有（数量変更/午前区切り/真空ピロートグル/終了目標時刻） =====
+     これまで各PCのブラウザ(localStorage)だけに保存していたため、他PCに出なかった項目。
+     「本日荷造り状態」blobの day セクションに相乗りさせ、30秒ポーリングで全PC共有にする。
+     ・キー：targetOvr/amSnap/offZones は日付「y-m-d」ごと、helpEnd は日付非依存の1値。 */
+  function nzDayKey_(){ var t=new Date(); return t.getFullYear()+'-'+(t.getMonth()+1)+'-'+t.getDate(); }
+  function nzDayEnsure_(){ NZS.day = NZS.day || {}; NZS.day.targetOvr = NZS.day.targetOvr || {}; NZS.day.amSnap = NZS.day.amSnap || {}; NZS.day.offZones = NZS.day.offZones || {}; if(!_nzsPatch.day) _nzsPatch.day = { targetOvr:{}, amSnap:{}, offZones:{} }; }
+  // 起動時：ローカルに残っている当日値を NZS.day へ取り込む（クラウド空なら種まきで送るため）
+  function nzDayInitLocal_(){
+    nzDayEnsure_(); var d = nzDayKey_();
+    try{ var v=localStorage.getItem('board_target_ovr_'+d); if(v!=null && v!=='') NZS.day.targetOvr[d]=Number(v)||0; }catch(e){}
+    try{ var a=JSON.parse(localStorage.getItem('ampm_snap_'+d)||'null'); if(a && typeof a.funes==='number') NZS.day.amSnap[d]=a; }catch(e){}
+    try{ var o=JSON.parse(localStorage.getItem('haichi_offzones_'+d)||'null'); if(o && typeof o==='object') NZS.day.offZones[d]=o; }catch(e){}
+    try{ var h=localStorage.getItem('help_target_end'); if(h) NZS.day.helpEnd=h; }catch(e){}
+  }
+  function nzDayHasLocal_(){ nzDayEnsure_(); var d=nzDayKey_(); return (NZS.day.targetOvr[d]!=null) || !!NZS.day.amSnap[d] || !!NZS.day.offZones[d] || (NZS.day.helpEnd!=null && NZS.day.helpEnd!==''); }
+  // クラウド空のときに送る種（現在の NZS.day を丸ごと）
+  function nzDaySeed_(){ nzDayEnsure_(); var s={ targetOvr:Object.assign({},NZS.day.targetOvr), amSnap:JSON.parse(JSON.stringify(NZS.day.amSnap)), offZones:JSON.parse(JSON.stringify(NZS.day.offZones)) }; if(NZS.day.helpEnd!=null && NZS.day.helpEnd!=='') s.helpEnd=NZS.day.helpEnd; return s; }
+  // ---- 書き込み（NZS.day更新＋パッチ＋クラウド送信予約）----
+  function nzDaySetTargetOvr_(v){ nzDayEnsure_(); var d=nzDayKey_(); if(v==null){ delete NZS.day.targetOvr[d]; _nzsPatch.day.targetOvr[d]=null; } else { NZS.day.targetOvr[d]=Number(v)||0; _nzsPatch.day.targetOvr[d]=Number(v)||0; } nzStateScheduleSave(); }
+  function nzDaySyncAmSnap_(funes,kg,at){ nzDayEnsure_(); var d=nzDayKey_(); var snap={funes:funes,kg:kg,at:at}; NZS.day.amSnap[d]=snap; _nzsPatch.day.amSnap[d]=snap; nzStateScheduleSave(); }
+  function nzDaySyncOffZones_(off){ nzDayEnsure_(); var d=nzDayKey_(); var o=Object.assign({},off||{}); NZS.day.offZones[d]=o; _nzsPatch.day.offZones[d]=o; nzStateScheduleSave(); }
+  function nzDaySetHelpEnd_(v){ nzDayEnsure_(); NZS.day.helpEnd=v||''; _nzsPatch.day.helpEnd=v||''; nzStateScheduleSave(); }
+  // ---- クラウド→UI 反映（未送信の変更が無いときだけ呼ばれる：呼び出し側でガード）----
+  function nzApplyDayFromCloud_(){
+    var day = NZS.day || {}; var dk = nzDayKey_();
+    // ① 数量変更（本日の荷造り舟数の当日上書き）
+    if(day.targetOvr && day.targetOvr[dk]!=null){
+      var v = Number(day.targetOvr[dk])||0;
+      try{ localStorage.setItem('board_target_ovr_'+dk, String(v)); }catch(e){}
+      if(typeof boardData==='object'){ boardData.targetOverride=v; boardData.targetFunes=v; }
+      if(typeof haichiSetText_==='function'){ haichiSetText_('t-target-funes', haichiNum_(v)); haichiSetText_('t-target-sub','当日変更（発注書の予定を上書き）'); }
+      if(typeof updateTargetKg==='function') updateTargetKg();
+      if(typeof haichiCalcFinish==='function') haichiCalcFinish();
+    }
+    // ② 午前区切り
+    if(day.amSnap && day.amSnap[dk]){
+      try{ localStorage.setItem('ampm_snap_'+dk, JSON.stringify(day.amSnap[dk])); }catch(e){}
+      if(typeof updateJissekiFromOps==='function') updateJissekiFromOps();
+    }
+    // ③ 真空/ピロー あり・なしトグル
+    if(day.offZones && day.offZones[dk]){
+      centerLive.offZones = Object.assign({}, day.offZones[dk]);
+      try{ localStorage.setItem('haichi_offzones_'+dk, JSON.stringify(centerLive.offZones)); }catch(e){}
+      if(typeof haichiUpdateZoneToggleUI==='function') haichiUpdateZoneToggleUI();
+      var f=document.getElementById('layout-full-frame'); if(f&&f.contentWindow){ try{ f.contentWindow.postMessage({type:'centerSetOffZones', off:centerLive.offZones},'*'); }catch(e){} }
+      if(typeof haichiPushToFrames==='function') haichiPushToFrames();
+    }
+    // ④ 終了目標時刻
+    if(day.helpEnd!=null && day.helpEnd!==''){
+      var te=document.getElementById('help-target');
+      if(te && te.value!==day.helpEnd){ te.value=day.helpEnd; try{ localStorage.setItem('help_target_end', day.helpEnd); }catch(e){} if(typeof helpRecalc==='function') helpRecalc(); }
+    }
   }
 
   // ---- 読み取り（すべて NZS を見る）----
@@ -1148,7 +1205,8 @@
   }
 
   // ---- クラウド同期（保存はfetch POST・取得はJSONP。※httpsなのでfetchが使える）----
-  function nzPatchEmpty_(){ return !Object.keys(_nzsPatch.status).length && !Object.keys(_nzsPatch.prod).length && !Object.keys(_nzsPatch.prevOvr).length; }
+  function nzDayPatchEmpty_(){ var dp=_nzsPatch.day||{}; return !Object.keys(dp.targetOvr||{}).length && !Object.keys(dp.amSnap||{}).length && !Object.keys(dp.offZones||{}).length && !('helpEnd' in dp); }
+  function nzPatchEmpty_(){ return !Object.keys(_nzsPatch.status).length && !Object.keys(_nzsPatch.prod).length && !Object.keys(_nzsPatch.prevOvr).length && nzDayPatchEmpty_(); }
   function nzStateScheduleSave(){
     if(!CENTER_ENDPOINT) return;      // 未接続ならローカル控えのみ
     if(!_nzsLoaded) return;           // クラウド未読込のうちは送らない（種まきはpull側で判定）
@@ -1161,7 +1219,7 @@
     if(_nzsSaving){ if(_nzsTimer) clearTimeout(_nzsTimer); _nzsTimer = setTimeout(nzStateSaveCloud, 800); return; }
     _nzsSaving = true;
     var patch = _nzsPatch;
-    _nzsPatch = { status:{}, prod:{}, prevOvr:{} };   // 送る分を切り出し、以後の変更は次回へ
+    _nzsPatch = nzPatchInit_();   // 送る分を切り出し、以後の変更は次回へ
     fetch(CENTER_ENDPOINT, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify({ action:'nizukuriStateSave', patch: patch, by: '電子黒板' }) })
       .then(function(r){ return r.json(); })
@@ -1177,6 +1235,14 @@
     Object.keys(p.status).forEach(function(k){ if(!(k in _nzsPatch.status)) _nzsPatch.status[k] = p.status[k]; });
     Object.keys(p.prevOvr).forEach(function(k){ if(!(k in _nzsPatch.prevOvr)) _nzsPatch.prevOvr[k] = p.prevOvr[k]; });
     Object.keys(p.prod).forEach(function(k){ _nzsPatch.prod[k] = _nzsPatch.prod[k] || {}; Object.keys(p.prod[k]).forEach(function(dd){ if(!(dd in _nzsPatch.prod[k])) _nzsPatch.prod[k][dd] = p.prod[k][dd]; }); });
+    // day（当日限り値）も未送信バッファへ戻す（既存の新しい変更は上書きしない）
+    if(p.day){
+      _nzsPatch.day = _nzsPatch.day || { targetOvr:{}, amSnap:{}, offZones:{} };
+      ['targetOvr','amSnap','offZones'].forEach(function(sec){
+        Object.keys(p.day[sec]||{}).forEach(function(k){ _nzsPatch.day[sec] = _nzsPatch.day[sec]||{}; if(!(k in _nzsPatch.day[sec])) _nzsPatch.day[sec][k] = p.day[sec][k]; });
+      });
+      if(('helpEnd' in p.day) && !('helpEnd' in _nzsPatch.day)) _nzsPatch.day.helpEnd = p.day.helpEnd;
+    }
   }
   // クラウドから読み込み → NZS を置き換え。cb は必ず呼ぶ（成功/失敗/スキップ問わず後続の nzLoadLive を回す）
   function nzStatePull(cb){
@@ -1197,10 +1263,11 @@
             NZS.status  = obj.status  || {};
             NZS.prod    = obj.prod    || {};
             NZS.prevOvr = obj.prevOvr || {};
-            nzMirrorLocal();
-          } else if(Object.keys(NZS.status).length || Object.keys(NZS.prod).length || Object.keys(NZS.prevOvr).length){
+            NZS.day     = obj.day     || { targetOvr:{}, amSnap:{}, offZones:{} };
+            nzMirrorLocal(); nzApplyDayFromCloud_();
+          } else if(Object.keys(NZS.status).length || Object.keys(NZS.prod).length || Object.keys(NZS.prevOvr).length || nzDayHasLocal_()){
             // クラウドが空＝このPCが最初 → 手元のローカル分を種まきで送る
-            _nzsPatch = { status:Object.assign({}, NZS.status), prod:JSON.parse(JSON.stringify(NZS.prod)), prevOvr:Object.assign({}, NZS.prevOvr) };
+            _nzsPatch = { status:Object.assign({}, NZS.status), prod:JSON.parse(JSON.stringify(NZS.prod)), prevOvr:Object.assign({}, NZS.prevOvr), day: nzDaySeed_() };
             _nzsDirty = true; setTimeout(nzStateSaveCloud, 300);
           }
         }
@@ -1210,6 +1277,32 @@
     s.src = CENTER_ENDPOINT + (CENTER_ENDPOINT.indexOf('?')>=0?'&':'?') + 'type=nizukuriStateGet&callback=' + cbn;
     s.onerror = function(){ if(!done){ done = true; clearTimeout(timer); _nzsLoaded = true; window[cbn] = function(){}; s.remove(); cb(); } };
     document.head.appendChild(s);
+  }
+
+  // 取得した本日荷造りデータ(days)を画面へ反映（nzLoadLive とまとめ取得の両方から使う）
+  function nzApplyLiveData_(data){
+    if(data && Array.isArray(data.days)){
+      const t = new Date();
+      nzSetStatus('🟢 実データ '+String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0'), 'var(--green)');
+      // 状態はブラウザに保存（再読み込み・翌日でも「確定」が残る）。キー＝実日付+取引先+区分+入数
+      const statusStore = nzLoadStatus();
+      NZ_DATES = data.days.map((d,i) => ({ key:'d'+i, label:d.label, wday:d.wday||'', note:d.note||'' }));
+      NZ_ORDERS = [];
+      data.days.forEach((d,i) => {
+        (d.orders||[]).forEach(o => {
+          const id = d.date+'|'+o.cust+'|'+(o.bunrui||'')+'|'+(o.nyusu||0);
+          NZ_ORDERS.push({
+            date:'d'+i, _id:id, cust:o.cust, bunrui:o.bunrui||'', nyusu:o.nyusu||0,
+            qty:o.qty||0, kg:o.kg||0, st: statusStore[id] || 'mikettei',
+            isNew: !!o.isNew   // ③ 発注書の変更検知はGAS側で判定（全PC共通・追加/数量変更のみNEW）
+          });
+        });
+      });
+    } else {
+      nzSetStatus('🟡 サンプル（データ形式が不正）', '#a76a00');
+    }
+    nzRender();
+    if(typeof updateJissekiFromOps==='function') updateJissekiFromOps();   // 本日実績（荷造りkg・歩留まり）へ反映
   }
 
   // GAS(センター連携 ?type=nizukuri)から取得（JSONP）
@@ -1222,28 +1315,7 @@
     const timer = setTimeout(function(){ if(!done){ nzSetStatus('🟡 サンプル（取得タイムアウト）', '#a76a00'); } }, 8000);
     window[cb] = function(data){
       done = true; clearTimeout(timer);
-      if(data && Array.isArray(data.days)){
-        const t = new Date();
-        nzSetStatus('🟢 実データ '+String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0'), 'var(--green)');
-        // 状態はブラウザに保存（再読み込み・翌日でも「確定」が残る）。キー＝実日付+取引先+区分+入数
-        const statusStore = nzLoadStatus();
-        NZ_DATES = data.days.map((d,i) => ({ key:'d'+i, label:d.label, wday:d.wday||'', note:d.note||'' }));
-        NZ_ORDERS = [];
-        data.days.forEach((d,i) => {
-          (d.orders||[]).forEach(o => {
-            const id = d.date+'|'+o.cust+'|'+(o.bunrui||'')+'|'+(o.nyusu||0);
-            NZ_ORDERS.push({
-              date:'d'+i, _id:id, cust:o.cust, bunrui:o.bunrui||'', nyusu:o.nyusu||0,
-              qty:o.qty||0, kg:o.kg||0, st: statusStore[id] || 'mikettei',
-              isNew: !!o.isNew   // ③ 発注書の変更検知はGAS側で判定（全PC共通・追加/数量変更のみNEW）
-            });
-          });
-        });
-      } else {
-        nzSetStatus('🟡 サンプル（データ形式が不正）', '#a76a00');
-      }
-      nzRender();
-      if(typeof updateJissekiFromOps==='function') updateJissekiFromOps();   // 本日実績（荷造りkg・歩留まり）へ反映
+      nzApplyLiveData_(data);
       delete window[cb]; s.remove();
     };
     let src = CENTER_ENDPOINT + (CENTER_ENDPOINT.includes('?')?'&':'?') + 'type=nizukuri&days=' + nzDaysWanted + '&callback=' + cb;
@@ -1293,9 +1365,9 @@
 
   // 起動：ローカル控えを読む → クラウドの状態を取得 → 荷造り一覧を表示（状態・作った分が反映された状態で描画）
   function nzBootstrap(){ nzStateInitLocal(); nzStatePull(function(){ nzLoadLive(); }); }
+  // 定期取得は「まとめ取得（centerPollBundle・30秒）」に一本化した（下部）。ここでは起動時の初回だけ行う。
   window.addEventListener('DOMContentLoaded', nzBootstrap);
-  // 5分ごと：他PCの状態変更も取り込んでから再表示（未送信の変更があるときは取りに行かない）
-  setInterval(function(){ if(CENTER_ENDPOINT){ nzStatePull(function(){ nzLoadLive(); }); } }, 5*60*1000);
+  // ※定期取得はまとめ取得（centerPollBundle・30秒）へ統合。ここでの5分ポーリングは廃止。
 
   /* ===== ⑥ 圃場（畑）から持ってきた舟数の記録 ===== */
   // 「今日の圃場」を手入力で登録 → 各圃場ごとに ＋舟 でカウント（時間は記録しない）。
@@ -1319,6 +1391,18 @@
   function hojoOnOpen(){ hojoInit(); hojoRender(); }
   window.addEventListener('DOMContentLoaded', hojoInit);
 
+  // 取得した圃場データを画面へ反映（hojoLoadLive とまとめ取得の両方から使う）。戻り値＝反映したか
+  var _hojoDirty=false;   // このPCで入力したがまだクラウドに保存できていない＝まとめ取得で上書きしない
+  function hojoApplyLive_(data){
+    if(data && data.date===HOJO.date && Array.isArray(data.fields) && data.fields.length){
+      HOJO.fields = data.fields.map(function(f){ return {name:String(f.name), funes:Number(f.funes)||0}; });
+      hojoSaveLocal(); hojoRender();
+      if(typeof updateJissekiFromOps==='function') updateJissekiFromOps();   // 本日実績（舟数）へ反映
+      var t=new Date(); hojoSetStatus('🟢 保存済み '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2),'var(--green)');
+      return true;
+    }
+    return false;
+  }
   // GASから今日の記録を取得（JSONP）＝他PCで入れた分も反映
   function hojoLoadLive(){
     if(!CENTER_ENDPOINT){ hojoSetStatus('ローカル保存のみ','var(--muted)'); return; }
@@ -1326,12 +1410,7 @@
     var cb='hojoCb_'+Date.now(); var s=document.createElement('script'); var done=false;
     var timer=setTimeout(function(){ if(!done){ hojoSetStatus('🟡 取得できず（ローカル表示）','#a76a00'); } },12000);
     window[cb]=function(data){ done=true; clearTimeout(timer);
-      if(data && data.date===HOJO.date && Array.isArray(data.fields) && data.fields.length){
-        HOJO.fields = data.fields.map(function(f){ return {name:String(f.name), funes:Number(f.funes)||0}; });
-        hojoSaveLocal(); hojoRender();
-        if(typeof updateJissekiFromOps==='function') updateJissekiFromOps();   // 本日実績（舟数）へ反映
-        var t=new Date(); hojoSetStatus('🟢 保存済み '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2),'var(--green)');
-      } else {
+      if(!hojoApplyLive_(data)){
         // サーバに今日の記録がまだ無い＝未保存。ローカルに入力済みなら、そのままクラウドへ移行保存（④「保持」）
         if(HOJO.fields && HOJO.fields.length){ hojoSetStatus('🟢 接続OK（ローカル入力分を保存中…）','var(--green)'); hojoPushSave(); }
         else hojoSetStatus('🟢 保存先に接続OK','var(--green)');
@@ -1348,12 +1427,13 @@
     hojoSaveLocal();
     if(!CENTER_ENDPOINT){ hojoSetStatus('ローカル保存のみ','var(--muted)'); return; }
     if(hojoSaveTimer) clearTimeout(hojoSaveTimer);
+    _hojoDirty=true;
     hojoSetStatus('保存中…','var(--muted)');
     hojoSaveTimer=setTimeout(function(){
       fetch(CENTER_ENDPOINT,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
         body:JSON.stringify({action:'hojoSave',date:HOJO.date,fields:HOJO.fields})})
         .then(function(r){return r.json();})
-        .then(function(d){ if(d&&d.ok){ var t=new Date(); hojoSetStatus('🟢 保存済み '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2),'var(--green)'); } else { hojoSetStatus('🟡 保存エラー（ローカルには保持）','#a76a00'); } })
+        .then(function(d){ if(d&&d.ok){ _hojoDirty=false; var t=new Date(); hojoSetStatus('🟢 保存済み '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2),'var(--green)'); } else { hojoSetStatus('🟡 保存エラー（ローカルには保持）','#a76a00'); } })
         .catch(function(){ hojoSetStatus('🟡 保存失敗（ローカルには保持）','#a76a00'); });
     },700);
   }
@@ -1579,17 +1659,23 @@
   }
 
   // GAS: 取得（JSONP）／保存（POST）。圃場と同型。
+  var _seisanDirty=false;   // このPCで入力したがまだクラウドに保存できていない＝まとめ取得で上書きしない
+  function seisanApplyLive_(data){
+    if(data && data.date===SEISAN.date && Array.isArray(data.list) && data.list.length){
+      SEISAN.list = data.list.map(function(p){ var rows={}; if(p.rows&&typeof p.rows==='object'){ Object.keys(p.rows).forEach(function(k){ rows[k]=Number(p.rows[k])||0; }); } return { name:String(p.name), ampm:(p.ampm==='PM'?'PM':'AM'), rows:rows }; });
+      seisanSaveLocal(); seisanRender();
+      var t=new Date(); seisanSetStatus('🟢 保存済み '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2),'var(--green)');
+      return true;
+    }
+    return false;
+  }
   function seisanLoadLive(){
     if(!CENTER_ENDPOINT){ seisanSetStatus('ローカル保存のみ','var(--muted)'); return; }
     seisanSetStatus('読み込み中…','var(--muted)');
     var cb='seisanCb_'+Date.now(); var s=document.createElement('script'); var done=false;
     var timer=setTimeout(function(){ if(!done){ seisanSetStatus('🟡 取得できず（ローカル表示）','#a76a00'); } },12000);
     window[cb]=function(data){ done=true; clearTimeout(timer);
-      if(data && data.date===SEISAN.date && Array.isArray(data.list) && data.list.length){
-        SEISAN.list = data.list.map(function(p){ var rows={}; if(p.rows&&typeof p.rows==='object'){ Object.keys(p.rows).forEach(function(k){ rows[k]=Number(p.rows[k])||0; }); } return { name:String(p.name), ampm:(p.ampm==='PM'?'PM':'AM'), rows:rows }; });
-        seisanSaveLocal(); seisanRender();
-        var t=new Date(); seisanSetStatus('🟢 保存済み '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2),'var(--green)');
-      } else {
+      if(!seisanApplyLive_(data)){
         if(SEISAN.list && SEISAN.list.length){ seisanSetStatus('🟢 接続OK（ローカル入力分を保存中…）','var(--green)'); seisanPushSave(); }
         else seisanSetStatus('🟢 保存先に接続OK','var(--green)');
       }
@@ -1604,12 +1690,13 @@
     seisanSaveLocal();
     if(!CENTER_ENDPOINT){ seisanSetStatus('ローカル保存のみ','var(--muted)'); return; }
     if(seisanSaveTimer) clearTimeout(seisanSaveTimer);
+    _seisanDirty=true;
     seisanSetStatus('保存中…','var(--muted)');
     seisanSaveTimer=setTimeout(function(){
       fetch(CENTER_ENDPOINT,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
         body:JSON.stringify({action:'seisanSave',date:SEISAN.date,list:SEISAN.list})})
         .then(function(r){return r.json();})
-        .then(function(d){ if(d&&d.ok){ var t=new Date(); seisanSetStatus('🟢 保存済み '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2),'var(--green)'); } else { seisanSetStatus('🟡 保存エラー（ローカルには保持）','#a76a00'); } })
+        .then(function(d){ if(d&&d.ok){ _seisanDirty=false; var t=new Date(); seisanSetStatus('🟢 保存済み '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2),'var(--green)'); } else { seisanSetStatus('🟡 保存エラー（ローカルには保持）','#a76a00'); } })
         .catch(function(){ seisanSetStatus('🟡 保存失敗（ローカルには保持）','#a76a00'); });
     },700);
   }
@@ -1650,6 +1737,7 @@
     ids.forEach(function(id){ if(on) delete off[id]; else off[id] = true; });
     centerLive.offZones = off;
     haichiSaveOffZones(off);
+    if(typeof nzDaySyncOffZones_==='function') nzDaySyncOffZones_(off);   // ★ 全PC共有（クラウド）へ
     haichiUpdateZoneToggleUI();
     // 配置図へ即反映（そのゾーンを外して／戻して自動配置し直す）
     var f = document.getElementById('layout-full-frame');
@@ -1855,7 +1943,7 @@
   //   保存＝ localStorage 'ampm_snap_<date>' = { funes, kg }（日付が変われば自動リセット）。
   function amKey(){ var t=new Date(); return 'ampm_snap_' + t.getFullYear() + '-' + (t.getMonth()+1) + '-' + t.getDate(); }
   function amLoadSnap(){ try{ var v=JSON.parse(localStorage.getItem(amKey())); return (v && typeof v.funes==='number') ? v : null; }catch(e){ return null; } }
-  function amSaveSnap(funes, kg){ try{ localStorage.setItem(amKey(), JSON.stringify({funes:funes, kg:kg, at:Date.now()})); }catch(e){} }
+  function amSaveSnap(funes, kg){ var at=Date.now(); try{ localStorage.setItem(amKey(), JSON.stringify({funes:funes, kg:kg, at:at})); }catch(e){} if(typeof nzDaySyncAmSnap_==='function') nzDaySyncAmSnap_(funes, kg, at); }   // ★ 全PC共有（クラウド）へ
   function amFmt(n){ return (n==null)?'–':haichiNum_(n, (n%1?1:0)); }
   function updateAmPm(funes, kg){
     var now = new Date();
@@ -1900,6 +1988,7 @@
     var v=Math.max(0,Math.round(Number(inp.value)||0));
     boardData.targetOverride = v; boardData.targetFunes = v;
     try{ localStorage.setItem(qtyTodayKey(), String(v)); }catch(e){}
+    if(typeof nzDaySetTargetOvr_==='function') nzDaySetTargetOvr_(v);   // ★ 全PC共有（クラウド）へ
     haichiSetText_('t-target-funes', haichiNum_(v));
     haichiSetText_('t-target-sub', '当日変更（発注書の予定を上書き）');
     updateTargetKg();   // ② 荷造りkg（予定）も連動
@@ -2010,7 +2099,7 @@
     var ni = document.getElementById('help-n'); if(ni) ni.addEventListener('input', function(){ ni._touched = true; });
     var te = document.getElementById('help-target');
     try{ var sv = localStorage.getItem('help_target_end'); if(sv && te) te.value = sv; }catch(e){}
-    if(te) te.addEventListener('change', function(){ try{ localStorage.setItem('help_target_end', te.value); }catch(e){} });
+    if(te) te.addEventListener('change', function(){ try{ localStorage.setItem('help_target_end', te.value); }catch(e){} if(typeof nzDaySetHelpEnd_==='function') nzDaySetHelpEnd_(te.value); });   // ★ 全PC共有（クラウド）へ
     helpRecalc();
   });
   function haichiLoadSummary(){ if(CENTER_ENDPOINT) haichiFetchOne('summary', function(d){ if(d && !d.error) haichiUpdateBoard(d); }); }
@@ -2048,6 +2137,7 @@
       //    以降のpush（centerLive.offZones）でも維持し、開き直し・5分更新でも同じ状態に。
       centerLive.offZones = d.off || {};
       haichiSaveOffZones(centerLive.offZones);
+      if(typeof nzDaySyncOffZones_==='function') nzDaySyncOffZones_(centerLive.offZones);   // ★ 全PC共有（クラウド）へ
       haichiImgOnChange_();   // ① 工程オン/オフの変更でも自動保存
     }
   });
@@ -2097,7 +2187,61 @@
   // 配置図の全画面フレームを起動時に読み込む（タブを開いていなくても、はつり人数→終了目標や
   // シフトカードの実データが流れるように。表示は「配置図」タブを開いたとき）。
   window.addEventListener('DOMContentLoaded', function(){ setTimeout(ensureFullFrame, 1200); });
-  setInterval(function(){ haichiLoadLive(); haichiCfgLoadCloud(false); }, 5*60*1000);
+
+  /* ===== ★ まとめ取得（30秒ポーリング）＝全液晶リンクの本体 =====
+     これまで更新のたびに GAS を7〜8回叩いていた（荷造り状態/荷造り/配置図/シフト/配置設定/サマリ/圃場/生産者）。
+     30秒間隔にすると3台分で実行回数が多すぎるため、GASの ?type=bundle で全部まとめて1回で取得し、各所へ分配する。
+     ・未送信の自分の変更があるセクション（荷造り状態・配置設定・圃場・生産者）は取り込まない（自分の入力を潰さない）。
+     ・1セクションが error でも他は反映される（GAS側で各処理を try 済み）。 */
+  function centerApplyBundle_(d){
+    if(!d) return;
+    // ③ 本日荷造りの状態＋当日限り値（day）：未送信の変更が無いときだけ取り込む
+    if(d.nizukuriState && !d.nizukuriState.error && !(_nzsSaving || _nzsDirty)){
+      _nzsLoaded = true; var ns = d.nizukuriState;
+      if(ns.json){
+        try{ var obj = JSON.parse(ns.json) || {};
+          NZS.status  = obj.status  || {};
+          NZS.prod    = obj.prod    || {};
+          NZS.prevOvr = obj.prevOvr || {};
+          NZS.day     = obj.day     || { targetOvr:{}, amSnap:{}, offZones:{} };
+          nzMirrorLocal(); nzApplyDayFromCloud_();
+        }catch(e){}
+      } else if(Object.keys(NZS.status).length || Object.keys(NZS.prod).length || Object.keys(NZS.prevOvr).length || nzDayHasLocal_()){
+        _nzsPatch = { status:Object.assign({}, NZS.status), prod:JSON.parse(JSON.stringify(NZS.prod)), prevOvr:Object.assign({}, NZS.prevOvr), day: nzDaySeed_() };
+        _nzsDirty = true; setTimeout(nzStateSaveCloud, 300);
+      }
+    }
+    // 本日荷造り一覧（発注書）
+    if(d.nizukuri && Array.isArray(d.nizukuri.days)){ nzApplyLiveData_(d.nizukuri); }
+    // 配置図（力量表）＋優先番号
+    if(d.haichi && !d.haichi.error){ centerLive.haichi = d.haichi; centerLive.prio = d.haichi.prio || {}; haichiPushToFrames(); }
+    // シフト（出勤者・AM/PM人数）
+    if(d.shift && !d.shift.error){ centerLive.shift = d.shift; updateStaffCell(); haichiPushToFrames(); }
+    // 配置設定（ゾーン設定・手動配置）：未送信の変更が無いときだけ取り込む
+    if(d.haichiCfg && !d.haichiCfg.error && !(_cfgSaving || Object.keys(_cfgDirty).length)){
+      _cfgLoaded = true; _cfgRev = d.haichiCfg.rev || 0;
+      if(d.haichiCfg.json){ try{ haichiCfgApplyCloud(JSON.parse(d.haichiCfg.json), d.haichiCfg.rev, true); }catch(e){} }
+      else { _cfgLastSaved = ''; }
+    }
+    // 本日サマリ（予定舟数など）
+    if(d.summary && !d.summary.error && typeof haichiUpdateBoard==='function'){ haichiUpdateBoard(d.summary); }
+    // 圃場（本日実績の舟数に反映）：自分の未保存入力があるときは上書きしない
+    if(d.hojo && !d.hojo.error && !_hojoDirty){ hojoApplyLive_(d.hojo); }
+    // 生産者：自分の未保存入力があるときは上書きしない
+    if(d.seisan && !d.seisan.error && !_seisanDirty){ seisanApplyLive_(d.seisan); }
+  }
+  function centerPollBundle(){
+    if(!CENTER_ENDPOINT) return;
+    var cb='bundleCb_'+Date.now(); var s=document.createElement('script'); var done=false;
+    var timer=setTimeout(function(){ if(!done){ done=true; window[cb]=function(){}; s.remove(); } }, 25000);
+    window[cb]=function(d){ if(done) return; done=true; clearTimeout(timer); try{ centerApplyBundle_(d||{}); }catch(e){} window[cb]=function(){}; s.remove(); };
+    var q='type=bundle&days='+nzDaysWanted+'&callback='+cb;
+    if(nzJumpDate) q+='&date='+encodeURIComponent(nzJumpDate);
+    s.src=CENTER_ENDPOINT+(CENTER_ENDPOINT.indexOf('?')>=0?'&':'?')+q;
+    s.onerror=function(){ if(!done){ done=true; clearTimeout(timer); window[cb]=function(){}; s.remove(); } };
+    document.head.appendChild(s);
+  }
+  setInterval(centerPollBundle, 30*1000);   // ★ 30秒ごとに全液晶をリンク（1回のGAS呼び出しで全データ取得）
 
   // ① ヘッダーの日付・時刻を実際の値でリアルタイム表示（毎分更新）
   function haichiUpdateClock(){
@@ -2112,9 +2256,8 @@
   haichiUpdateClock();
   setInterval(haichiUpdateClock, 30*1000);
 
-  // ②③ 本日サマリの取得（読み込み時＋5分ごと。終了時刻は毎分も再計算して時計に追従）
+  // ②③ 本日サマリの取得（読み込み時のみ個別取得。以降はまとめ取得〈30秒〉に統合。終了時刻は毎分も再計算して時計に追従）
   window.addEventListener('DOMContentLoaded', haichiLoadSummary);
-  setInterval(haichiLoadSummary, 5*60*1000);
   setInterval(function(){ if(typeof haichiCalcFinish === 'function') haichiCalcFinish(); }, 60*1000);
   /* CENTER_HAICHI_LINK_END */
 
@@ -2219,8 +2362,8 @@
   }
 
   window.addEventListener('DOMContentLoaded', mdLoadLive);
-  // 5分ごとに最新を取り込み（ライブ接続時のみ）
-  setInterval(function(){ if(MD_NEWS_ENDPOINT) mdLoadLive(); }, 5*60*1000);
+  // 30秒ごとに最新を取り込み（ライブ接続時のみ）。※お知らせはSlack取得の別GASのため、まとめ取得には含めず単独で叩く。
+  setInterval(function(){ if(MD_NEWS_ENDPOINT) mdLoadLive(); }, 30*1000);
 </script>
 
 <!-- ===== 資材表：資材管理アプリのアラート連携 ===== -->
