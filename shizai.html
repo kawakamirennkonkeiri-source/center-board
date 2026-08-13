@@ -113,7 +113,7 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
   <div class="tablewrap">
     <table id="dashTable">
       <thead><tr>
-        <th class="l">分類</th><th class="l">資材名</th><th>現在庫</th><th title="起点日〜基準日の平均使用">日次平均</th>
+        <th class="l">分類</th><th class="l">資材名</th><th>現在庫</th><th title="日野出さんが保管している自社分（頼めば2日弱で届く）。仕入先が日野出の資材だけ入力可">日野出在庫</th><th title="起点日〜基準日の平均使用">日次平均</th>
         <th title="発注書の今後予定から算出。無い資材は過去平均">在庫切れ予定<br>(あと何日)</th><th class="l">在庫の余裕</th><th>必要在庫<br>(発注点)</th>
         <th class="l">状態 / アクション</th><th>発注目安</th><th class="l">仕入先 / LT</th>
       </tr></thead>
@@ -224,11 +224,12 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
   </div>
   <div class="hint"><b>発注点は自動計算</b>（日次平均×(LT+安全在庫日数)）なのでここでは触りません。<b>LT日数</b>＝発注〜納品の日数、<b>破棄率%</b>は棚卸で自動更新されます（手動修正も可）。<br>
   <b>アラート方式</b>：<b>発注書連動</b>＝荷造数から自動（箱・袋・シール等）／<b>定期</b>＝○日ごとにチェック（半年=180・半月=15。手袋・エプロン等の消耗品向け）／<b>残数</b>＝残り○個で警告（ラップ・テープ等）／<b>なし</b>＝監視しない。<br>
-  <b>季節開始/終了</b>は「そろそろ切替では？」のお知らせのメド（空欄＝通年）。実際のグレー切替は右の <b>🟢使用中／🕒季節外</b> ボタンで手動です。</div>
+  <b>季節開始/終了</b>は「そろそろ切替では？」のお知らせのメド（空欄＝通年）。実際のグレー切替は右の <b>🟢使用中／🕒季節外</b> ボタンで手動です。<br>
+  <b>並べ替え</b>：左の <b>⠿</b> をつかんで上下にドラッグすると、資材の並び順を変えられます（ダッシュボードなど全画面の並びに反映されます）。</div>
   <div class="tablewrap">
     <table id="matTable">
       <thead><tr>
-        <th class="l">分類</th><th class="l">資材名</th><th class="l">単位</th><th class="l">仕入先</th>
+        <th title="ドラッグで並べ替え"></th><th class="l">分類</th><th class="l">資材名</th><th class="l">単位</th><th class="l">仕入先</th>
         <th>LT日数</th><th>基準在庫</th><th>破棄率%</th><th>最小ロット</th>
         <th title="発注書連動/定期/残数/なし">アラート方式</th><th title="定期=日数(半年180/半月15)／残数=個数">周期/しきい値</th>
         <th title="使う時期の開始(MM-DD)。空欄=通年">季節開始</th><th title="使う時期の終了(MM-DD)。空欄=通年">季節終了</th><th></th>
@@ -505,6 +506,9 @@ function save(){ localStorage.setItem(LS,JSON.stringify(S)); publishAlerts(); cl
 
 /* =================== CALC =================== */
 function matById(id){return S.materials.find(m=>m.id===id);}
+// 日野出さんが自社分を保管してくれている資材か（仕入先に「日野出」を含む）
+function isHinode(m){ return /日野出/.test(m.supplier||''); }
+function setHinode(id,v){const m=matById(id);if(!m)return;m.hinodeStock=Math.max(0,Number(v||0));save();recalcAll();}
 // 実際のグレー切替は「手動フラグ」。inSeason=季節外ボタンが押されていないか
 function inSeason(m){ return !m.seasonOff; }
 function hasSeason(m){ return !!(m.seasonStart||m.seasonEnd); }
@@ -596,25 +600,27 @@ function computeStock(){
     const theo=use[m.id]||0;
     const scrap=theo*(Number(m.scrapRate||0)/100);
     const stock=Number(m.initStock||0)+(rec[m.id]||0)-theo-scrap+Number(m.stockAdj||0);
+    const hinode=Number(m.hinodeStock||0);             // 日野出さん保管分（頼めば2日弱で届く自社在庫）
+    const eff=stock+hinode;                            // 実質在庫＝現在庫＋日野出保管（発注判定に使う）
     const gross=theo+scrap;
     const daily=days>0?gross/days:0;
     const thresholdDays=Number(m.leadDays||0)+safety;
     const reorder=daily*thresholdDays;                 // 発注点(自動)
-    const stockDays=daily>0?stock/daily:Infinity;      // 在庫日数
+    const stockDays=daily>0?eff/daily:Infinity;        // 在庫日数（日野出保管も含めた実質在庫ベース）
     const off=!inSeason(m);                             // 季節外（手動フラグ）
     const mode=m.alertMode||'auto';
     // 発注書の今後の予定から「在庫切れ予定日」を算出（現在庫から日別に消化）
     const fd=fmap[m.id]||null; let runoutDate=null, runoutDays=null, futureTotal=0, hasFuture=false;
     if(fd){ const fdates=Object.keys(fd).sort(); hasFuture=fdates.length>0;
       futureTotal=fdates.reduce((a,d)=>a+fd[d],0);
-      let run=stock;
+      let run=eff;   // 現在庫＋日野出保管から日別に消化
       for(const d of fdates){ run -= fd[d]*(1+Number(m.scrapRate||0)/100); if(run<0){ runoutDate=d; break; } }
       if(runoutDate) runoutDays=Math.round((new Date(runoutDate)-new Date(base))/86400000);
     }
     let warn=false, periodicDue=false, periodicNext=null;
     if(off){ warn=false; }
     else if(mode==='none'){ warn=false; }
-    else if(mode==='threshold'){ warn = stock <= Number(m.thresholdQty||0); }
+    else if(mode==='threshold'){ warn = eff <= Number(m.thresholdQty||0); }
     else if(mode==='periodic'){
       const ds=daysSince(m.lastDone||S.settings.startDate);
       periodicNext=Number(m.periodDays||0)-ds; periodicDue = ds>=Number(m.periodDays||0); warn=periodicDue;
@@ -622,7 +628,7 @@ function computeStock(){
     else if(hasFuture){   // auto＋発注書の今後予定あり：在庫切れ予定日 ≤ 今日+LT+安全 なら発注推奨
       warn = !!(runoutDate && runoutDate <= addDaysStr(base, Number(m.leadDays||0)+safety));
     }
-    else { warn = (daily>0 ? stockDays<=thresholdDays : stock<=0); }   // auto（今後予定が無い時は過去平均で判定）
+    else { warn = (daily>0 ? stockDays<=thresholdDays : eff<=0); }   // auto（今後予定が無い時は過去平均で判定。実質在庫=現在庫＋日野出）
     // 「発注しない（使い切り）」資材：発注推奨を出さず、在庫が尽きかけたら後継への切替を促す
     // ＋ 切替条件（切替日／○枚使ったら）でも切替をお知らせ
     let switchDue=false, switchReason='';
@@ -639,9 +645,9 @@ function computeStock(){
       if(warn||periodicDue||stock<=0){ switchDue=true; switchReason=switchReason||'在庫僅少'; }
       warn=false; periodicDue=false;
     }
-    let need=Math.max(0,Math.ceil(reorder+daily*safety-stock)); // 補充目安（次の安全在庫まで）
+    let need=Math.max(0,Math.ceil(reorder+daily*safety-eff)); // 補充目安（次の安全在庫まで。日野出保管も差し引く）
     if(m.minLot&&need>0)need=Math.ceil(need/m.minLot)*m.minLot;
-    return {m,theo,scrap,received:rec[m.id]||0,stock,daily,stockDays,thresholdDays,reorder,warn,need,off,mode,periodicDue,periodicNext,switchDue,switchReason,
+    return {m,theo,scrap,received:rec[m.id]||0,stock,hinode,eff,daily,stockDays,thresholdDays,reorder,warn,need,off,mode,periodicDue,periodicNext,switchDue,switchReason,
       hasFuture,runoutDate,runoutDays,futureTotal,
       hasSeason:hasSeason(m),suggest:seasonSuggest(m),order:openOrderOf(m.id)};
   });
@@ -660,7 +666,7 @@ function buildAlerts(){
     if(r.mode==='periodic'){ if(r.periodicDue) periodic.push({name:r.m.name,days:Number(r.m.periodDays||0)}); return; }
     if(r.warn){
       reorder.push({name:r.m.name,stock:Math.round(r.stock),days:isFinite(r.stockDays)?Math.round(r.stockDays):null,
-        need:r.need,threshold:(r.mode==='threshold'?Number(r.m.thresholdQty||0):null),unit:r.m.unit||'',
+        need:r.need,threshold:(r.mode==='threshold'?Number(r.m.thresholdQty||0):null),unit:r.m.unit||'',hinode:Math.round(r.hinode||0),
         runoutDate:r.runoutDate||null,runoutDays:r.runoutDays});
     }
   });
@@ -704,7 +710,7 @@ function renderDash(){
   const ab=document.getElementById('alertbar');const st=stocktakeStatus();
   const items=[];
   if(st.due)items.push(`<span class="pill scrap" style="cursor:pointer" onclick="switchView('stock')">📋 月末棚卸が未入力です（${st.month}）→ 入力する</span>`);
-  a.reorder.forEach(r=>items.push(`<span class="pill reorder">🛒 ${r.name}（${r.threshold!=null?'残り '+fmt(r.stock)+' ≤ しきい値 '+fmt(r.threshold):(r.runoutDate?'在庫 '+fmt(r.stock)+' ／ 切れ予定 '+r.runoutDate.slice(5)+'（あと'+fmt(r.runoutDays)+'日）':'在庫 '+fmt(r.stock)+(r.days!=null?' ／ あと'+r.days+'日':''))}）</span>`));
+  a.reorder.forEach(r=>items.push(`<span class="pill reorder">🛒 ${r.name}（${r.threshold!=null?'残り '+fmt(r.stock)+' ≤ しきい値 '+fmt(r.threshold):(r.runoutDate?'在庫 '+fmt(r.stock)+' ／ 切れ予定 '+r.runoutDate.slice(5)+'（あと'+fmt(r.runoutDays)+'日）':'在庫 '+fmt(r.stock)+(r.days!=null?' ／ あと'+r.days+'日':''))}${r.hinode?'／日野出 '+fmt(r.hinode):''}）</span>`));
   a.deliver.filter(d=>d.dueReached).forEach(d=>items.push(`<span class="pill deliver">🚚 ${d.name} 納品予定（${d.due||''}）${d.late?' <b>※遅延</b>':''}</span>`));
   a.periodic.forEach(p=>items.push(`<span class="pill" style="background:#e0f2fe;color:#075985">🔔 ${p.name} 定期チェック時期（毎${p.days}日）</span>`));
   a.scrap.forEach(s=>items.push(`<span class="pill scrap">🗑 ${s.name} 破棄率高い（${fmt1(s.rate)}%）理由未記入</span>`));
@@ -773,9 +779,17 @@ function renderDash(){
     if(!r.off && r.switchDue && !r.m.noReorder && r.m.nextMatId){ const nx=matById(r.m.nextMatId);
       if(nx) action+=' <button class="btn small" onclick="switchToNext(\''+r.m.id+'\')">🔁 '+esc(nx.name)+'へ切替</button>';
     }
+    // 日野出保管分の注記／現在庫が心細い時は「日野出から補充」を促す（＝日野出があるうちは発注推奨にしない）
+    if(!r.off && isHinode(r.m) && (r.hinode>0 || r.stock<=0)){
+      const onsiteLow = (r.mode==='threshold') ? (r.stock<=Number(r.m.thresholdQty||0)) : (r.reorder>0 ? r.stock<=r.reorder : r.stock<=0);
+      const pull = (!r.warn && onsiteLow && r.hinode>0);
+      action+=' <span class="'+(pull?'state-wait':'muted')+'" style="font-size:11px">🔵日野出保管 '+fmt(r.hinode)+(pull?'（ここから補充を）':'')+'</span>';
+    }
     return `<tr style="${r.off?'opacity:.42;background:#f6f8fa':''}">
       <td class="l muted">${r.m.cat}</td><td class="l">${r.m.name}${r.off?' <span class="tag other">季節外</span>':''}${r.m.noReorder?' <span class="tag other">発注しない</span>':''}${r.mode!=='auto'&&!r.off?' <span class="tag kg">'+(r.mode==='periodic'?'定期':r.mode==='threshold'?'残数':'監視なし')+'</span>':''}</td>
-      <td style="font-weight:800">${fmt(r.stock)}${r.m.stockAdj?'<br><span class="muted" style="font-size:10px" title="棚卸再確認で補正'+(r.m.stockAdjBy?(' / '+esc(r.m.stockAdjBy)):'')+'">✎'+(r.m.stockAdjDate?r.m.stockAdjDate.slice(5):'手入力')+'</span>':''}</td><td>${showAuto?fmt1(r.daily):'—'}</td>
+      <td style="font-weight:800">${fmt(r.stock)}${r.m.stockAdj?'<br><span class="muted" style="font-size:10px" title="棚卸再確認で補正'+(r.m.stockAdjBy?(' / '+esc(r.m.stockAdjBy)):'')+'">✎'+(r.m.stockAdjDate?r.m.stockAdjDate.slice(5):'手入力')+'</span>':''}</td>
+      <td>${isHinode(r.m)?'<input class="cell" type="number" min="0" style="width:72px" value="'+(r.m.hinodeStock||'')+'" onchange="setHinode(\''+r.m.id+'\',this.value)" title="日野出さん保管分（すぐ届く）">':'<span class="muted">—</span>'}</td>
+      <td>${showAuto?fmt1(r.daily):'—'}</td>
       <td>${showAuto?projTxt:'—'}</td>
       <td class="l">${showAuto?'<span class="daybar"><span style="width:'+Math.round(ratio*100)+'%;background:'+barColor+'"></span></span>':'<span class="muted">—</span>'}</td>
       <td>${showAuto?fmt(r.reorder)+'<br><span class="muted" style="font-size:11px">閾値 '+r.thresholdDays+'日</span>':'—'}</td>
@@ -1032,7 +1046,8 @@ function restoreServerBackup(month){
 
 function renderMat(){
   const tb=document.querySelector('#matTable tbody');
-  tb.innerHTML=S.materials.map(m=>`<tr>
+  tb.innerHTML=S.materials.map((m,i)=>`<tr ondragover="matDragOver(event,${i})" ondrop="matDrop(event,${i})">
+    <td class="l" draggable="true" ondragstart="matDragStart(event,${i})" ondragend="matDragEnd(event)" style="cursor:grab;color:var(--muted);user-select:none;font-size:16px" title="ドラッグで並べ替え">⠿</td>
     <td class="l"><input class="cell" style="width:90px" value="${m.cat||''}" onchange="setMat('${m.id}','cat',this.value)"></td>
     <td class="l"><input style="width:150px" value="${m.name||''}" onchange="setMat('${m.id}','name',this.value)"></td>
     <td class="l"><input class="cell" style="width:46px" value="${m.unit||''}" onchange="setMat('${m.id}','unit',this.value)"></td>
@@ -1055,6 +1070,21 @@ function renderMat(){
 function setMat(id,k,v){const m=matById(id);if(!m)return;
   m[k]=(['leadDays','initStock','scrapRate','minLot','periodDays','thresholdQty'].includes(k))?Number(v):v;
   save();recalcAll();if(k==='alertMode')renderMat();}
+/* 資材マスタ：ドラッグ&ドロップで並べ替え */
+let _matDrag=null;
+function matDragStart(ev,i){ _matDrag=i; try{ev.dataTransfer.effectAllowed='move';ev.dataTransfer.setData('text/plain',String(i));}catch(e){} }
+function matDragOver(ev,i){ ev.preventDefault(); try{ev.dataTransfer.dropEffect='move';}catch(e){}
+  document.querySelectorAll('#matTable tbody tr').forEach(tr=>tr.style.boxShadow='');
+  const tr=ev.currentTarget; if(tr&&tr.style) tr.style.boxShadow='inset 0 2px 0 var(--accent)'; }
+function matDragEnd(ev){ _matDrag=null; document.querySelectorAll('#matTable tbody tr').forEach(tr=>tr.style.boxShadow=''); }
+function matDrop(ev,i){ ev.preventDefault();
+  document.querySelectorAll('#matTable tbody tr').forEach(tr=>tr.style.boxShadow='');
+  let from=_matDrag; if(from==null||isNaN(from)){ const t=ev.dataTransfer&&ev.dataTransfer.getData('text/plain'); from=t!==''&&t!=null?Number(t):null; }
+  _matDrag=null;
+  if(from==null||isNaN(from)||from===i)return;
+  const arr=S.materials; if(from<0||from>=arr.length||i<0||i>=arr.length)return;
+  const it=arr.splice(from,1)[0]; arr.splice(i,0,it);
+  save(); renderMat(); refreshMatSelects(); recalcAll(); }
 function addMaterial(){S.materials.push({id:'M'+Date.now(),cat:'その他資材',name:'新規資材',unit:'枚',supplier:'',leadDays:7,initStock:0,scrapRate:2,minLot:0,seasonStart:'',seasonEnd:'',seasonOff:false});save();renderMat();refreshMatSelects();}
 function delMat(id){if(!confirm('削除しますか？'))return;S.materials=S.materials.filter(m=>m.id!==id);save();renderMat();recalcAll();refreshMatSelects();}
 
