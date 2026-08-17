@@ -222,7 +222,7 @@
 <div class="panel" id="panel-skill">
   <div class="note">
     <b>この表は「配置優先（優先番号）」を表示しています（閲覧専用）。</b>数字が小さいほど先に配置・<b>×</b>＝その場所は不可・<b>―</b>＝なし。<b>編集はスプレッドシートの「配置優先」シートで</b>行ってください（保存すると数分で配置図に反映されます）。<br>
-    <b>出勤（シフト）</b>のチェックだけは、その日の欠席などに合わせてここで外せます（外すとその日は自動配置の対象外。シフト表とつなぐとシフトが横に表示されます）。
+    <b>出勤（シフト）</b>のチェックだけは、その日の欠席などに合わせてここで外せます。<b>外すとその日はもう配置に戻りません</b>（急な休み・センターに入らない日など。シフト表が〇でも復活しません。翌日になると自動でリセット）。外した内容は<b>全部のPC・液晶に共有</b>されます。戻したいときはチェックを付け直してください。
     <div style="margin-top:10px;">
       <button class="action" style="background:#0f7a34;" onclick="openSkillSheet()">📝 スプレッドシートを開く（「配置優先」シートで編集）</button>
       <span id="skill-sheet-note" style="font-size:12px;color:var(--text2);margin-left:8px;"></span>
@@ -666,12 +666,56 @@ function applySlotAttend_(){
     w.attend = !!w._baseAttend && !slotOff_(w);
   });
 }
+/* ===== ⑥ 出勤チェックを外したら、その日はもう配置に戻さない =====
+   これまでは、30秒ごとのシフト再取得（applyLiveData）のたびに workers を作り直して
+   シフトの〇でattendを上書きしていたため、チェックを外した人が配置に復活していた。
+   → 外した人を _absentOvr（氏名ベース）に控え、シフト反映の“後”に必ず欠勤へ落とす。
+   　 当日限り（日付キー）。電子黒板経由でクラウド共有＝全PCの液晶で同じ状態になる。 */
+var _absentOvr = {};                        // { 正規化氏名: true }
+function absentKey_(){ var t=new Date(); return 'haichi_absent_' + t.getFullYear() + '-' + (t.getMonth()+1) + '-' + t.getDate(); }
+function absentLoadLocal_(){ try{ var v=JSON.parse(localStorage.getItem(absentKey_())); if(v && typeof v==='object') _absentOvr = absentNormMap_(v); }catch(e){} }
+function absentNormMap_(map){
+  var out = {};
+  Object.keys(map || {}).forEach(function(k){ if(!map[k]) return; var nk = normNameC_(k); if(nk) out[nk] = true; });
+  return out;
+}
+function absentSaveLocal_(){ try{ localStorage.setItem(absentKey_(), JSON.stringify(_absentOvr)); }catch(e){} }
+function isAbsentOvr_(w){
+  var h = normNameC_(w && w.name);
+  if(!h) return false;
+  var keys = Object.keys(_absentOvr);
+  for(var i=0;i<keys.length;i++){ if(nameMatchC_(keys[i], h)) return true; }
+  return false;
+}
+// シフト反映の後に呼ぶ：チェックを外した人を欠勤へ落として未配置に戻す
+function applyAbsentOverride_(){
+  if(!Object.keys(_absentOvr).length) return;
+  workers.forEach(function(w){
+    if(isAbsentOvr_(w)){ w._baseAttend = false; w.attend = false; removeFromAllZones(w.id); }
+  });
+}
+// 親（電子黒板）へ「今日チェックを外した人」を通知＝クラウド保存＆他PCへ配信
+function postAbsentToParent_(){
+  try{
+    if(window.parent && window.parent !== window){
+      window.parent.postMessage({ type:'centerAbsent', absent:_absentOvr }, '*');
+    }
+  }catch(_e){}
+}
 // 出勤チェックの切り替えは“素の出勤”を更新→時間帯を加味して反映（1か所に集約）
 function setWorkerAttend(wid, on){
   var w = worker(wid); if(!w) return;
   w._baseAttend = !!on;
   w.attend = w._baseAttend && !slotOff_(w);
   if(!w.attend) removeFromAllZones(wid);
+  // ⑥ 外した／戻したを当日ぶん記憶（シフト再取得で復活させないため）
+  var nk = normNameC_(w.name);
+  if(nk){
+    if(on){ Object.keys(_absentOvr).forEach(function(k){ if(nameMatchC_(k, nk)) delete _absentOvr[k]; }); }
+    else { _absentOvr[nk] = true; }
+    absentSaveLocal_();
+    postAbsentToParent_();
+  }
   renderBoard();
   postCenterResult_();
 }
@@ -818,6 +862,7 @@ function setCapacity(idx, n){
   var off = lsGet_('haichi_tool_offzones_'+toolDateKey_()); if(off && typeof off==='object') offZones = off;
   var pr = lsGet_('haichi_tool_prio'); if(pr) applyPrioByName_(pr);
 })();
+try{ absentLoadLocal_(); }catch(e){}   // ⑥ 今日すでに出勤チェックを外した人を読み戻す（開き直し・再読込でも維持）
 autoAssign('pattern');
 renderBoard();
 /* CENTER_LIVE_DATA_RECEIVER */
@@ -1033,6 +1078,13 @@ function applyLiveData(payload){
         w.shiftStatus = found;
       });
     }
+    // ⑥ 出勤チェックを外した人（当日限り・全PC共有）＝シフトが〇でも配置に戻さない。
+    //    親（電子黒板）から届いた分をこのPCの控えとマージしてから、シフトの上に必ずかぶせる。
+    if(payload && payload.absent && typeof payload.absent === 'object'){
+      _absentOvr = absentNormMap_(payload.absent);   // 親が持っている当日ぶんが正（チェックを戻した人も反映される）
+      absentSaveLocal_();
+    }
+    workers.forEach(function(w){ if(isAbsentOvr_(w)) w.attend = false; });
     // ② シフト＝“素の出勤”を確定し、選択中の時間帯（午前/午後）の半休を差し引いて w.attend を決める
     workers.forEach(function(w){ w._baseAttend = w.attend; });
     applySlotAttend_();
@@ -1096,6 +1148,18 @@ function postCenterResult_(){
 window.addEventListener('message', function(e){
   if(!e.data) return;
   if(e.data.type === 'centerLiveData') applyLiveData(e.data.payload);
+  else if(e.data.type === 'centerSetAbsent'){                                            // ⑥ 他PCで出勤チェックが変わった→こちらにも反映
+    try{
+      _absentOvr = absentNormMap_(e.data.absent || {});
+      absentSaveLocal_();
+      workers.forEach(function(w){
+        if(isAbsentOvr_(w)){ w._baseAttend = false; w.attend = false; removeFromAllZones(w.id); }
+      });
+      renderBoard();
+      if(document.getElementById('panel-skill') && document.getElementById('panel-skill').classList.contains('active')) renderSkillTable();
+      postCenterResult_();
+    }catch(_e){}
+  }
   else if(e.data.type === 'centerRequestImage'){ try{ saveBoardImage(); }catch(_e){} }   // ① 電子黒板からの自動保存要求
   else if(e.data.type === 'centerSetOffZones'){                                            // ② 本日オフの工程が変わった→外して/戻して自動配置し直す
     offZones = e.data.off || {};

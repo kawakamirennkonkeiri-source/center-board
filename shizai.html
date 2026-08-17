@@ -138,6 +138,26 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
       <tbody></tbody>
     </table>
   </div>
+
+  <!-- ① 手袋（シフト連動）＝センター1人 × 8枚／日 -->
+  <div class="sec-title" style="margin-top:22px">🧤 手袋（シフト連動）</div>
+  <div class="toolbar">
+    <button class="btn" onclick="fetchGloves()">🔗 シフトから取得（GAS）</button>
+    <label style="font-weight:700;font-size:13px">1人あたり
+      <input type="number" id="glovePer" min="1" step="1" style="width:64px" onchange="setGlovePer(this.value)"> 枚／日</label>
+    <label style="font-weight:700;font-size:13px"><input type="checkbox" id="gloveOn" onchange="setGloveOn(this.checked)"> 在庫計算に反映する</label>
+    <span class="muted" id="gloveMeta"></span>
+  </div>
+  <div class="hint">シフト表の<b>サイズ列</b>に書いてある各人の手袋サイズと、その日のシフトが<b>「休」以外＝出勤</b>の人数から、
+    <b>使用枚数＝出勤人数 × 1人あたりの枚数</b> を日別・サイズ別に計算します。<b>先の日のシフト</b>も同じように読むので、
+    <b>「45日分の在庫があるか」の判定</b>にもそのまま使えます（③の基準）。荷造数（発注書）とは無関係なので BOM には登録しません。</div>
+  <div class="tablewrap">
+    <table id="gloveTable">
+      <thead><tr><th class="l">サイズ</th><th class="l">割り当てる資材</th><th>現在庫</th><th>実績 使用枚数<br>(起点日〜基準日)</th><th>1日あたり<br>(平均)</th><th>今後の予定<br>(枚)</th><th class="l">状態</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div class="hint" id="gloveDays"></div>
 </section>
 
 <!-- ============ ORDERS HISTORY ============ -->
@@ -221,9 +241,12 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
   <div class="sec-title">資材マスタ
     <button class="btn small" onclick="addMaterial()">＋ 資材を追加</button>
     <button class="btn sec small" onclick="addMissingMaterials()">＋ 棚卸8.3の消耗品を追加</button>
+    <button class="btn sec small" onclick="coverBulk(true)" title="分類が「消耗品」の資材にまとめて「○日分の在庫を確保」の基準を付けます（既定45日）">＋ 消耗品に「○日分」の基準を追加</button>
+    <button class="btn sec small" onclick="coverBulk(false)">消耗品の「○日分」基準を外す</button>
   </div>
   <div class="hint"><b>発注点は自動計算</b>（日次平均×(LT+安全在庫日数)）なのでここでは触りません。<b>LT日数</b>＝発注〜納品の日数、<b>破棄率%</b>は棚卸で自動更新されます（手動修正も可）。<br>
   <b>アラート方式</b>：<b>発注書連動</b>＝荷造数から自動（箱・袋・シール等）／<b>定期</b>＝○日ごとにチェック（半年=180・半月=15。手袋・エプロン等の消耗品向け）／<b>残数</b>＝残り○個で警告（ラップ・テープ等）／<b>なし</b>＝監視しない。<br>
+  <b>別基準「○日分の在庫が確保できているか」</b>：上のボタン、またはダッシュボードの各行の <b>＋ 基準を追加</b> から付けられます。<b>アラート方式はそのまま残り、この基準が追加で効きます</b>（例：消耗品は45日分を切ったら発注推奨）。<br>
   <b>季節開始/終了</b>は「そろそろ切替では？」のお知らせのメド（空欄＝通年）。実際のグレー切替は右の <b>🟢使用中／🕒季節外</b> ボタンで手動です。<br>
   <b>並べ替え</b>：左の <b>⠿</b> をつかんで上下にドラッグすると、資材の並び順を変えられます（ダッシュボードなど全画面の並びに反映されます）。</div>
   <div class="tablewrap">
@@ -370,6 +393,26 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
   <div class="dlg-f"><button class="btn sec" value="cancel">キャンセル</button><button class="btn" id="c_save" value="ok">この在庫に合わせる</button></div>
 </form></dialog>
 
+<!-- ③ COVER-DAYS CRITERION DIALOG（○日分の在庫が確保できているか） -->
+<dialog id="coverDlg"><form method="dialog">
+  <div class="dlg-h">基準を追加：○日分の在庫が確保できているか</div>
+  <div class="dlg-b">
+    <div id="cv_info" class="muted"></div>
+    <div class="row" style="margin:0">
+      <div class="field"><label>確保したい日数</label><input type="number" id="cv_days" min="1" step="1" value="45"></div>
+      <div class="field"><label>1日あたりの使用量（空欄＝自動）</label><input type="number" id="cv_daily" min="0" step="0.1" placeholder="自動（日次平均）"></div>
+    </div>
+    <small class="help">在庫が<b>この日数ぶんを下回ったら「発注推奨」</b>にします。いまのアラート方式（定期／残数／発注書連動）は<b>そのまま残り、この基準が追加で効きます</b>。<br>
+      1日あたりの使用量は、空欄なら<b>日次平均（起点日〜基準日の実績）</b>を使います。手袋のようにシフト連動で使用量が出る資材は、そのまま自動で計算されます。<br>
+      使用量が0のまま（実績が無い）だと判定できないので、その時だけ手入力してください。</small>
+  </div>
+  <div class="dlg-f">
+    <button class="btn sec" value="cancel">キャンセル</button>
+    <button class="btn warn" id="cv_del" value="ok" style="display:none">この基準を外す</button>
+    <button class="btn" id="cv_save" value="ok">この基準を使う</button>
+  </div>
+</form></dialog>
+
 <!-- DELIVER DIALOG -->
 <dialog id="delivDlg"><form method="dialog">
   <div class="dlg-h">納品を入力</div>
@@ -476,14 +519,21 @@ function defaultState(){
   return {materials,skus,boms:{},orders:[],stocktakes:[],funes:{},futureFunes:{},
     settings:{gasUrl:'',startDate:'2026-08-03',baseDate:todayStr(),safetyDays:30,scrapAlertPct:10,shareOn:false,deviceName:''},
     live:{asOf:null,isLive:false},
+    glove:defaultGlove(),
+    busy:{},
     cloud:{rev:0,savedAt:'',savedBy:''}};
 }
+// ① 手袋（シフト連動）＝センター1人×8枚/日。サイズ別の出勤人数をシフトから取り、使用枚数を自動計算する。
+function defaultGlove(){ return {on:true,perPerson:8,map:{},days:{},sizes:[],missing:[],fetchedAt:'',note:''}; }
 function todayStr(){const d=new Date();const p=n=>String(n).padStart(2,'0');
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());}
 function load(){ try{S=JSON.parse(localStorage.getItem(LS));}catch(e){} if(!S)S=defaultState();
   S.funes=S.funes||{};S.futureFunes=S.futureFunes||{};S.orders=S.orders||[];S.stocktakes=S.stocktakes||[];S.boms=S.boms||{};S.backups=S.backups||[];S.recounts=S.recounts||[];
   S.settings=Object.assign({safetyDays:30,scrapAlertPct:10,shareOn:false,deviceName:''},S.settings);
   S.cloud=Object.assign({rev:0,savedAt:'',savedBy:''},S.cloud);
+  S.glove=Object.assign(defaultGlove(),S.glove||{});   // ① 手袋（シフト連動）
+  S.busy=S.busy||{};                                   // ② 繁忙期の「全資材 再確認」記録（YYYY-MM → {by,at}）
+  gloveAutoMap();
   migrateV3();
 }
 // 一度だけ走るデータ整理（既存の入力は保持）
@@ -560,6 +610,44 @@ function effFunes(sk){ // 換算箱数
   if(sk.kg){const bs=Number(sk.boxSize||sk.irisu||1)||1;return f/bs;}
   return f;
 }
+/* =================== ① 手袋（シフト連動） ===================
+   センター 1人 × S.glove.perPerson 枚／日。サイズは各人がシフト表のサイズ列に書いてある。
+   GAS `?type=gloveUsage` が日別・サイズ別の「休以外＝出勤の人数」を返す（過去も未来も同じ形）。
+   → 過去（起点日〜基準日）は理論使用量へ、未来（基準日より後）は在庫切れ予定の日別予定使用へ。
+   シフトは先の日まで提出されているので、③の「45日分の在庫があるか」もこの未来分で判定できる。 */
+function gloveMats(){ return S.materials.filter(m=>/手袋/.test(m.name)&&!/耐切/.test(m.name)); }   // 使い捨てのビニール手袋だけ（耐切手袋は日数消費しない）
+// サイズ → 資材ID の割り当て。未設定なら名前の末尾サイズ（ビニール手袋M 等）から自動で埋める。
+function gloveAutoMap(){
+  if(!S.glove)return; S.glove.map=S.glove.map||{};
+  const sizes=(S.glove.sizes&&S.glove.sizes.length)?S.glove.sizes:['S','M','L'];
+  sizes.forEach(sz=>{
+    if(S.glove.map[sz]&&matById(S.glove.map[sz]))return;
+    const hit=gloveMats().find(m=>new RegExp(sz+'$','i').test(String(m.name).replace(/[\s　]/g,'')));
+    if(hit)S.glove.map[sz]=hit.id;
+  });
+}
+function gloveMatId(size){ return (S.glove&&S.glove.map&&S.glove.map[size])||''; }
+function gloveOn(){ return !!(S.glove&&S.glove.on&&S.glove.days&&Object.keys(S.glove.days).length); }
+// 日別・資材別の手袋使用枚数を返す（from<=date<=to。省略時は無制限）
+function gloveUsageByMat(from,to){
+  const out={}; if(!gloveOn())return out;
+  const per=Number(S.glove.perPerson||8)||8;
+  Object.keys(S.glove.days).forEach(d=>{
+    if(from&&d<from)return; if(to&&d>to)return;
+    const bySize=S.glove.days[d]||{};
+    Object.keys(bySize).forEach(sz=>{
+      const mid=gloveMatId(sz); if(!mid)return;
+      const n=Number(bySize[sz]||0); if(!n)return;
+      (out[mid]=out[mid]||{}); out[mid][d]=(out[mid][d]||0)+n*per;
+    });
+  });
+  return out;
+}
+// サイズ未記入の人がいる日は、その人数を「枚数不明」として警告に出す
+function gloveNoSizeTotal(){
+  if(!S.glove||!S.glove.days)return 0;
+  return Object.keys(S.glove.days).reduce((a,d)=>a+Number((S.glove.days[d]||{}).__noSize||0),0);
+}
 function theoreticalUsage(){
   const use={}; S.materials.forEach(m=>use[m.id]=0);
   S.skus.forEach(sk=>{ if(sk.exc)return;
@@ -567,6 +655,9 @@ function theoreticalUsage(){
     const bom=S.boms[sk.key]; if(!bom)return;
     for(const mid in bom){const g=Number(bom[mid]||0);if(g)use[mid]=(use[mid]||0)+boxes*g;}
   });
+  // ① 手袋：起点日〜基準日の出勤人数×枚数を理論使用量に足す（BOMには載せない＝荷造数と無関係のため）
+  const g=gloveUsageByMat(S.settings.startDate,S.settings.baseDate||todayStr());
+  for(const mid in g){ for(const d in g[mid]) use[mid]=(use[mid]||0)+g[mid][d]; }
   return use;
 }
 function receivedByMat(){ const r={}; S.materials.forEach(m=>r[m.id]=0);
@@ -584,6 +675,10 @@ function futureDemandByMat(){
       for(const mid in bom){ const g=Number(bom[mid]||0); if(!g)continue; (map[mid]=map[mid]||{}); map[mid][d]=(map[mid][d]||0)+boxes*g; }
     });
   });
+  // ① 手袋：基準日より後のシフト（提出済みの予定）から、日別の予定使用枚数を足す
+  const base=S.settings.baseDate||todayStr();
+  const g=gloveUsageByMat(addDaysStr(base,1),null);
+  for(const mid in g){ (map[mid]=map[mid]||{}); for(const d in g[mid]) map[mid][d]=(map[mid][d]||0)+g[mid][d]; }
   return map;
 }
 function addDaysStr(dateStr,n){ const d=new Date(dateStr); d.setDate(d.getDate()+n); const p=x=>String(x).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
@@ -645,10 +740,36 @@ function computeStock(){
       if(warn||periodicDue||stock<=0){ switchDue=true; switchReason=switchReason||'在庫僅少'; }
       warn=false; periodicDue=false;
     }
+    /* ③ 別基準：「○日分（既定45日）の在庫が確保できているか」＝消耗品向け。
+       1日あたりの使用量は、手入力（dailyUse）があればそれ、無ければ日次平均（daily）。
+       この基準は他のアラート方式（定期／残数／発注書連動）に“足して”効く。 */
+    const coverOn=!!m.coverOn, coverDays=Number(m.coverDays||45);
+    let coverWarn=false, coverHave=null, coverNeed=0, coverDaily=0, coverSrc='';
+    if(coverOn&&!off){
+      // ①優先＝これから coverDays 日ぶんの“予定”（シフトの出勤人数／発注書の今後予定）を積む
+      let futNeed=0;
+      if(fd){ const hz=addDaysStr(base,coverDays);
+        Object.keys(fd).forEach(d=>{ if(d>base&&d<=hz) futNeed+=fd[d]*(1+Number(m.scrapRate||0)/100); }); }
+      if(futNeed>0){
+        coverSrc='plan'; coverDaily=futNeed/coverDays;
+        coverHave=eff/coverDaily; coverWarn=eff<futNeed;
+        if(coverWarn)coverNeed=Math.max(0,Math.ceil(futNeed-eff));
+      }else{
+        // ②予定がまだ無いとき＝手入力の1日使用量、無ければ日次平均（起点日〜基準日の実績）
+        coverSrc='avg'; coverDaily=Number(m.dailyUse||0)||daily;
+        if(coverDaily>0){
+          coverHave=eff/coverDaily; coverWarn=coverHave<coverDays;
+          if(coverWarn)coverNeed=Math.max(0,Math.ceil(coverDaily*coverDays-eff));
+        }
+      }
+      if(coverWarn&&!m.noReorder)warn=true;
+    }
     let need=Math.max(0,Math.ceil(reorder+daily*safety-eff)); // 補充目安（次の安全在庫まで。日野出保管も差し引く）
+    if(coverNeed>need)need=coverNeed;                         // ③ 45日分に足りない量の方が多ければそちらを採用
     if(m.minLot&&need>0)need=Math.ceil(need/m.minLot)*m.minLot;
     return {m,theo,scrap,received:rec[m.id]||0,stock,hinode,eff,daily,stockDays,thresholdDays,reorder,warn,need,off,mode,periodicDue,periodicNext,switchDue,switchReason,
       hasFuture,runoutDate,runoutDays,futureTotal,
+      coverOn,coverDays,coverWarn,coverHave,coverDaily,coverSrc,
       hasSeason:hasSeason(m),suggest:seasonSuggest(m),order:openOrderOf(m.id)};
   });
 }
@@ -661,6 +782,15 @@ function buildAlerts(){
     if(r.order){   // 発注中は全モード共通で「納品待ち」扱い
       const due=r.order.dueDate||'';const base=S.settings.baseDate;
       deliver.push({name:r.m.name,due,late:!!(due&&due<base),dueReached:!!(due&&due<=base)});
+      return;
+    }
+    // ③ 45日分（○日分）の基準に足りない → 方式に関係なく「発注推奨」として出す
+    if(r.coverWarn){
+      reorder.push({name:r.m.name,stock:Math.round(r.stock),days:isFinite(r.stockDays)?Math.round(r.stockDays):null,
+        need:r.need,threshold:null,unit:r.m.unit||'',hinode:Math.round(r.hinode||0),
+        runoutDate:r.runoutDate||null,runoutDays:r.runoutDays,
+        cover:{days:r.coverDays,have:(r.coverHave!=null&&isFinite(r.coverHave))?Math.round(r.coverHave):null}});
+      if(r.mode==='periodic'&&r.periodicDue) periodic.push({name:r.m.name,days:Number(r.m.periodDays||0)});
       return;
     }
     if(r.mode==='periodic'){ if(r.periodicDue) periodic.push({name:r.m.name,days:Number(r.m.periodDays||0)}); return; }
@@ -706,11 +836,24 @@ function renderDash(){
   document.getElementById('dashRule').innerHTML=
     `<b>アラートの基準：</b>発注書の<b>今後の予定荷造数</b>を現在庫から日別に消化して <b>「在庫切れ予定日」</b> を算出。`+
     `<b>切れ予定日 ≤ 今日＋LT日数＋安全在庫${S.settings.safetyDays}日</b> になったら「発注推奨」（納品が間に合う余裕を残して発注）。`+
-    `今後の予定がまだ発注書に無い資材は、起点日〜基準日の<b>過去平均（日次平均）</b>で判定します。`;
+    `今後の予定がまだ発注書に無い資材は、起点日〜基準日の<b>過去平均（日次平均）</b>で判定します。`+
+    `<br><b>別基準（○日分）：</b>「＋ 基準を追加」を付けた資材は、<b>在庫が指定日数ぶんを下回ったら発注推奨</b>になります（消耗品は45日分が目安）。`+
+    `<b>手袋</b>はシフトの出勤人数×${Number((S.glove&&S.glove.perPerson)||8)}枚／日で使用量を自動計算します。`;
   const ab=document.getElementById('alertbar');const st=stocktakeStatus();
   const items=[];
+  // ② 繁忙期に備える（7月＝お盆／11月＝正月。各月の第1週。再確認をSlackへ報告するまで出続ける）
+  if(busyDueNow()&&!busyIsDone(busyKeyNow())){
+    items.push(`<span class="pill" style="background:#7c2d12;color:#fff;cursor:pointer" onclick="busyRecheck()" title="全ての資材の在庫を再確認し、担当者名を入れてSlackへ報告します">⚠️ 資材アラート 繁忙期に備えよう（${busyLabelNow()}）― 全ての在庫を再確認する</span>`);
+  }else if(busyDueNow()){
+    const b=S.busy[busyKeyNow()]||{};
+    items.push(`<span class="pill" style="background:#dcfce7;color:#15803d">✅ 繁忙期の全資材 再確認 済み（${esc(b.by||'')}）</span>`);
+  }
+  // ① 手袋：サイズ未記入の人がいると枚数が数えきれない
+  if(gloveOn()&&gloveNoSizeTotal()>0){
+    items.push(`<span class="pill scrap" style="cursor:pointer" onclick="switchView('usage')">🧤 手袋サイズ未記入の人がいます（${esc((S.glove.missing||[]).slice(0,5).join('・'))}${(S.glove.missing||[]).length>5?' ほか':''}）→ シフト表のサイズ列へ</span>`);
+  }
   if(st.due)items.push(`<span class="pill scrap" style="cursor:pointer" onclick="switchView('stock')">📋 月末棚卸が未入力です（${st.month}）→ 入力する</span>`);
-  a.reorder.forEach(r=>items.push(`<span class="pill reorder">🛒 ${r.name}（${r.threshold!=null?'残り '+fmt(r.stock)+' ≤ しきい値 '+fmt(r.threshold):(r.runoutDate?'在庫 '+fmt(r.stock)+' ／ 切れ予定 '+r.runoutDate.slice(5)+'（あと'+fmt(r.runoutDays)+'日）':'在庫 '+fmt(r.stock)+(r.days!=null?' ／ あと'+r.days+'日':''))}${r.hinode?'／日野出 '+fmt(r.hinode):''}）</span>`));
+  a.reorder.forEach(r=>items.push(`<span class="pill reorder">🛒 ${r.name}（${r.cover?('あと'+(r.cover.have!=null?fmt(r.cover.have):'0')+'日分 ＜ 基準'+fmt(r.cover.days)+'日分'):(r.threshold!=null?'残り '+fmt(r.stock)+' ≤ しきい値 '+fmt(r.threshold):(r.runoutDate?'在庫 '+fmt(r.stock)+' ／ 切れ予定 '+r.runoutDate.slice(5)+'（あと'+fmt(r.runoutDays)+'日）':'在庫 '+fmt(r.stock)+(r.days!=null?' ／ あと'+r.days+'日':'')))}${r.hinode?'／日野出 '+fmt(r.hinode):''}）</span>`));
   a.deliver.filter(d=>d.dueReached).forEach(d=>items.push(`<span class="pill deliver">🚚 ${d.name} 納品予定（${d.due||''}）${d.late?' <b>※遅延</b>':''}</span>`));
   a.periodic.forEach(p=>items.push(`<span class="pill" style="background:#e0f2fe;color:#075985">🔔 ${p.name} 定期チェック時期（毎${p.days}日）</span>`));
   a.scrap.forEach(s=>items.push(`<span class="pill scrap">🗑 ${s.name} 破棄率高い（${fmt1(s.rate)}%）理由未記入</span>`));
@@ -739,7 +882,7 @@ function renderDash(){
     let projTxt;
     if(r.hasFuture){ projTxt = r.runoutDate ? ('あと'+fmt(r.runoutDays)+'日<br><span class="muted" style="font-size:11px">切れ予定 '+r.runoutDate.slice(5)+'</span>') : '<span class="state-ok">予定内は充足</span>'; }
     else { projTxt = isFinite(r.stockDays)?fmt(r.stockDays)+'日<br><span class="muted" style="font-size:11px">(過去平均)</span>':'—'; }
-    const showAuto = (r.mode==='auto') && !r.off;   // 日次平均・在庫日数・余裕・発注点を出すのはauto時のみ
+    const showAuto = (r.mode==='auto'||r.coverOn) && !r.off;   // 日次平均・在庫日数・余裕・発注点は auto と「○日分の基準」を付けた資材で表示
     let action,cls;
     const orderBtn='<button class="btn sec small" onclick="openOrderDlg(\''+r.m.id+'\')">発注</button>';
     if(r.off){
@@ -772,6 +915,16 @@ function renderDash(){
       action=(r.mode==='threshold' ? '⚠️ 残り'+fmt(r.stock)+'（しきい値'+fmt(r.m.thresholdQty)+'）' : '⚠️ 発注推奨')+
         ' <button class="btn small" onclick="openOrderDlg(\''+r.m.id+'\')">発注</button>';
     }else{ cls='state-ok'; action=(r.mode==='threshold'?'✅ 適正（残'+fmt(r.stock)+'）':'✅ 適正')+' '+orderBtn; }
+    // ③ 別基準「○日分の在庫が確保できているか」＝消耗品向け。基準を追加すると、他の方式に足して効く。
+    if(!r.off){
+      if(r.coverOn){
+        const haveTxt=(r.coverHave!=null&&isFinite(r.coverHave))?fmt(r.coverHave)+'日分':(r.coverDaily>0?'—':'使用量不明');
+        action+=' <span class="'+(r.coverWarn?'state-warn':'state-ok')+'" style="font-size:11px" title="'+(r.coverSrc==='plan'?'これから'+fmt(r.coverDays)+'日ぶんの予定（シフト・発注書）から判定':'起点日〜基準日の日次平均から判定')+'">'+(r.coverWarn?'⚠️':'✅')+'基準'+fmt(r.coverDays)+'日分：いま '+haveTxt+'</span>'+
+          ' <button class="btn sec small" onclick="openCoverDlg(\''+r.m.id+'\')">基準を編集</button>';
+      }else{
+        action+=' <button class="btn sec small" onclick="openCoverDlg(\''+r.m.id+'\')" title="「○日分の在庫が確保できているか」という基準を、この資材に追加します（既定45日）">＋ 基準を追加</button>';
+      }
+    }
     if(!r.off && r.hasSeason){
       action+=' <button class="btn '+(r.suggest==='off'?'warn':'sec')+' small" onclick="toggleSeason(\''+r.m.id+'\')">'+(r.suggest==='off'?'⏸ 季節外にする（そろそろ）':'季節外にする')+'</button>';
     }
@@ -817,6 +970,95 @@ function renderUsage(){
       <td class="l muted">${mats||'<span style="color:var(--danger)">BOM未設定</span>'}</td></tr>`;
   }).join('');
   document.getElementById('usageMeta').textContent=(S.live.isLive?'🟢 発注書ライブ':'🧪 手入力/サンプル')+'　SKU '+S.skus.length+'件';
+  renderGloves();
+}
+
+/* =================== ① 手袋（シフト連動）＝UI =================== */
+function setGlovePer(v){ S.glove.perPerson=Math.max(1,Math.round(Number(v)||8)); save(); recalcAll(); }
+function setGloveOn(v){ S.glove.on=!!v; save(); recalcAll(); }
+function setGloveMat(size,mid){ S.glove.map=S.glove.map||{}; if(mid)S.glove.map[size]=mid; else delete S.glove.map[size]; save(); recalcAll(); }
+function fetchGloves(){
+  const url=(S.settings.gasUrl||'').trim();
+  if(!url){alert('設定画面で GAS の URL を入れてください。');switchView('settings');return;}
+  const cb='gloveCb_'+Date.now();
+  const sc=document.createElement('script');
+  window[cb]=(d)=>{try{applyGloves(d);}finally{try{delete window[cb];}catch(e){}sc.remove();}};
+  // 起点日〜（今日＋120日）＝過去の実績と、提出済みの先のシフトを両方まとめて取る
+  const from=S.settings.startDate||todayStr();
+  sc.src=url+(url.includes('?')?'&':'?')+'type=gloveUsage&start='+encodeURIComponent(from)+'&callback='+cb;
+  sc.onerror=()=>{alert('取得に失敗しました。GASのURL・デプロイをご確認ください。');sc.remove();try{delete window[cb];}catch(e){}};
+  document.body.appendChild(sc);
+}
+function applyGloves(d){
+  if(!d||d.error&&!(d.days&&d.days.length)){alert('シフトから手袋を読めませんでした。\n'+((d&&d.error)||'')+'\n\nシフト表のサイズ列（S/M/L）をご確認ください。');return;}
+  S.glove.perPerson=Number(d.perPerson||S.glove.perPerson||8)||8;
+  S.glove.sizes=(d.sizes||[]).slice();
+  S.glove.missing=(d.missing||[]).slice();
+  S.glove.fetchedAt=new Date().toISOString();
+  const days={};
+  (d.days||[]).forEach(x=>{
+    const o=Object.assign({},x.bySize||{});
+    if(Number(x.noSize||0)>0)o.__noSize=Number(x.noSize);
+    days[x.date]=o;
+  });
+  S.glove.days=days;
+  gloveAutoMap();
+  save();recalcAll();
+  alert('✓ シフトから取得しました。\n対象 '+(d.days||[]).length+'日分 ／ サイズ '+((d.sizes||[]).join('・')||'—')+' ／ 1人 '+S.glove.perPerson+'枚'+
+    ((d.missing||[]).length?('\n\n⚠ サイズ未記入： '+d.missing.join('・')):''));
+}
+function renderGloves(){
+  const per=Number(S.glove.perPerson||8)||8;
+  const pi=document.getElementById('glovePer'); if(pi)pi.value=per;
+  const oi=document.getElementById('gloveOn'); if(oi)oi.checked=!!S.glove.on;
+  const base=S.settings.baseDate||todayStr();
+  const rows=computeStock();
+  const past=gloveUsageByMat(S.settings.startDate,base), fut=gloveUsageByMat(addDaysStr(base,1),null);
+  const sizes=(S.glove.sizes&&S.glove.sizes.length)?S.glove.sizes:Object.keys(S.glove.map||{});
+  const opts=(sel)=>['<option value="">（割り当てなし）</option>'].concat(
+    S.materials.map(m=>`<option value="${m.id}"${m.id===sel?' selected':''}>${esc(m.name)}</option>`)).join('');
+  const tb=document.querySelector('#gloveTable tbody');
+  if(tb){
+    tb.innerHTML=sizes.length?sizes.map(sz=>{
+      const mid=gloveMatId(sz), m=mid?matById(mid):null, r=m?rows.find(x=>x.m.id===m.id):null;
+      const p=mid&&past[mid]?Object.keys(past[mid]).reduce((a,d)=>a+past[mid][d],0):0;
+      const f=mid&&fut[mid]?Object.keys(fut[mid]).reduce((a,d)=>a+fut[mid][d],0):0;
+      const nd=mid&&past[mid]?Object.keys(past[mid]).length:0;
+      let state;
+      if(!m)state='<span class="state-warn">資材が未割り当て</span>';
+      else if(!S.glove.on)state='<span class="muted">在庫計算に反映していません</span>';
+      else if(r&&r.coverOn)state=(r.coverWarn?'<span class="state-warn">⚠️ 基準'+fmt(r.coverDays)+'日分に不足</span>':'<span class="state-ok">✅ 基準'+fmt(r.coverDays)+'日分あり</span>')+
+        ' <button class="btn sec small" onclick="openCoverDlg(\''+m.id+'\')">基準を編集</button>';
+      else state='<button class="btn sec small" onclick="openCoverDlg(\''+m.id+'\')">＋ 45日分の基準を追加</button>';
+      return `<tr><td class="l"><b>${esc(sz)}</b></td>
+        <td class="l"><select class="cell" onchange="setGloveMat('${esc(sz)}',this.value)">${opts(mid)}</select></td>
+        <td>${m?fmt(r?r.stock:0):'—'}</td>
+        <td>${fmt(p)}${nd?'<br><span class="muted" style="font-size:11px">'+nd+'日分</span>':''}</td>
+        <td>${nd?fmt1(p/nd):'—'}</td>
+        <td>${fmt(f)}</td>
+        <td class="l">${state}</td></tr>`;
+    }).join('')
+    :'<tr><td colspan="7" class="l muted">まだシフトから取得していません。上の「🔗 シフトから取得（GAS）」を押してください。</td></tr>';
+  }
+  const meta=document.getElementById('gloveMeta');
+  if(meta)meta.textContent=(S.glove.fetchedAt?('取得 '+S.glove.fetchedAt.slice(0,16).replace('T',' ')+'　'):'')+
+    (Object.keys(S.glove.days||{}).length+'日分')+((S.glove.missing||[]).length?('　⚠ サイズ未記入 '+S.glove.missing.length+'名'):'');
+  const dd=document.getElementById('gloveDays');
+  if(dd){
+    const ks=Object.keys(S.glove.days||{}).sort();
+    if(!ks.length){dd.innerHTML='';}
+    else{
+      const near=ks.filter(d=>d>=base).slice(0,7);
+      dd.innerHTML='<b>これからの出勤人数（枚数＝人数×'+per+'）：</b> '+
+        (near.length?near.map(d=>{
+          const o=S.glove.days[d]||{};
+          const tot=Object.keys(o).reduce((a,k)=>a+(k==='__noSize'?Number(o[k]||0):Number(o[k]||0)),0);
+          const det=Object.keys(o).filter(k=>k!=='__noSize').map(k=>k+' '+o[k]).join('・');
+          return d.slice(5)+' <b>'+tot+'人</b>('+(det||'サイズ未記入')+')';
+        }).join('　／　'):'—')+
+        ((S.glove.missing||[]).length?('<br><span style="color:var(--danger)">⚠ サイズ未記入： '+esc(S.glove.missing.join('・'))+' → シフト表のサイズ列に S/M/L を入れてください</span>'):'');
+    }
+  }
 }
 
 function renderOrders(){
@@ -1287,6 +1529,99 @@ document.getElementById('c_save').addEventListener('click',(e)=>{
   m.stockAdjDate=S.settings.baseDate||todayStr();
   save();recalcAll();renderMat();renderSwitch();
 });
+
+/* =================== ③ 基準「○日分の在庫が確保できているか」 =================== */
+let _coverMid=null;
+function openCoverDlg(mid){
+  _coverMid=mid;const m=matById(mid);if(!m)return;
+  // 基準を付けたらどう判定されるかを、その場で計算して見せる（一時的にONにして計算し、すぐ戻す）
+  const wasOn=m.coverOn,wasDays=m.coverDays;
+  m.coverOn=true;m.coverDays=Number(m.coverDays||45);
+  const r=computeStock().find(x=>x.m.id===mid);
+  m.coverOn=wasOn;m.coverDays=wasDays;
+  const daily=r?r.coverDaily:0;
+  document.getElementById('cv_info').innerHTML=esc(m.name)+
+    '<br><span class="muted">現在庫 '+fmt(r?r.stock:0)+' '+esc(m.unit||'')+
+    (r&&r.hinode?'（＋日野出保管 '+fmt(r.hinode)+'）':'')+
+    ' ／ 1日あたり '+(daily>0?fmt1(daily)+' '+esc(m.unit||'')+'<span style="font-size:11px">（'+(r.coverSrc==='plan'?'これからの予定から':'日次平均から')+'）</span>':'<b class="state-warn">使用実績・予定なし → 下に手入力してください</b>')+
+    (daily>0?'　→ いま <b>'+fmt(r.coverHave)+'日分</b>':'')+'</span>';
+  document.getElementById('cv_days').value=Number(m.coverDays||45);
+  document.getElementById('cv_daily').value=(m.dailyUse?Number(m.dailyUse):'');
+  document.getElementById('cv_del').style.display=m.coverOn?'':'none';
+  document.getElementById('coverDlg').showModal();
+}
+document.getElementById('cv_save').addEventListener('click',(e)=>{
+  const m=matById(_coverMid);if(!m){e.preventDefault();return;}
+  const d=Math.round(Number(document.getElementById('cv_days').value||0));
+  if(!(d>0)){e.preventDefault();alert('確保したい日数を入れてください（例 45）。');return;}
+  const du=document.getElementById('cv_daily').value;
+  m.coverOn=true;m.coverDays=d;m.dailyUse=(du===''?0:Math.max(0,Number(du)||0));
+  save();recalcAll();renderMat();
+});
+document.getElementById('cv_del').addEventListener('click',()=>{
+  const m=matById(_coverMid);if(!m)return;
+  m.coverOn=false;save();recalcAll();renderMat();
+});
+// 消耗品にまとめて基準を付ける／外す（資材マスタのボタン）
+function coverBulk(on){
+  const list=S.materials.filter(m=>/消耗品/.test(m.cat||''));
+  if(!list.length){alert('分類が「消耗品」の資材がありません。');return;}
+  if(on){
+    const d=Math.round(Number(prompt('消耗品 '+list.length+' 品目に「○日分の在庫を確保」の基準を付けます。\n日数を入れてください。','45')||0));
+    if(!(d>0))return;
+    list.forEach(m=>{m.coverOn=true;m.coverDays=d;});
+    save();recalcAll();renderMat();
+    alert('消耗品 '+list.length+' 品目に「'+d+'日分」の基準を付けました。');
+  }else{
+    if(!confirm('消耗品 '+list.length+' 品目から「○日分」の基準を外しますか？'))return;
+    list.forEach(m=>{m.coverOn=false;});
+    save();recalcAll();renderMat();
+  }
+}
+
+/* =================== ② 繁忙期アラート（7月＝お盆／11月＝正月 の第1週） =================== */
+const BUSY_MONTHS={7:'お盆',11:'正月'};
+function busyKeyNow(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+function busyDueNow(){const d=new Date();return !!(BUSY_MONTHS[d.getMonth()+1]&&d.getDate()<=7);}   // 第1週＝1〜7日
+function busyLabelNow(){return BUSY_MONTHS[new Date().getMonth()+1]||'繁忙期';}
+function busyIsDone(k){return !!(S.busy&&S.busy[k]);}
+// 「全ての在庫を再確認」→ 担当者名 → Slackへ報告 → その月は表示終了（電子黒板とも共有）
+function busyRecheck(){
+  const key=busyKeyNow();
+  if(busyIsDone(key)){alert('この月の再確認はすでに完了しています。');return;}
+  const who=(prompt('全ての資材の在庫を再確認したら、担当者名を入れて「OK」を押してください。\n（Slackへ報告が流れます）',S.settings.lastStockBy||'')||'').trim();
+  if(!who){if(who!=='')alert('担当者名を入れてください。');return;}
+  const msg=who+':繁忙期に備え、全ての資材を再確認しました';
+  shizaiSendSlack(msg,(ok,err)=>{
+    if(!ok){alert('🟡 Slackへの送信に失敗しました'+(err?'（'+err+'）':'')+'\nGASのURL・デプロイをご確認ください。');return;}
+    S.busy=S.busy||{};S.busy[key]={by:who,at:new Date().toISOString()};
+    S.settings.lastStockBy=who;
+    save();busyPushBoard(key,who);recalcAll();
+    alert('✓ Slackへ報告しました。\n\n'+msg);
+  });
+}
+// Slack投稿はGAS経由（Webhook URLはGASのスクリプトプロパティ HELP_WEBHOOK が持つ）
+function shizaiSendSlack(msg,cb){
+  const url=(S.settings.gasUrl||'').trim();
+  if(!url){cb(false,'設定画面で GAS の URL を入れてください');return;}
+  const name='shizaiSlk_'+Date.now();let done=false;
+  const sc=document.createElement('script');
+  const fin=(ok,err)=>{if(done)return;done=true;clearTimeout(t);try{delete window[name];}catch(e){}sc.remove();cb(ok,err);};
+  const t=setTimeout(()=>fin(false,'通信がタイムアウトしました'),20000);
+  window[name]=(res)=>fin(!!(res&&res.ok),(res&&res.error)||'');
+  sc.src=url+(url.includes('?')?'&':'?')+'type=sendSlack&callback='+name+'&msg='+encodeURIComponent(msg);
+  sc.onerror=()=>fin(false,'');
+  document.body.appendChild(sc);
+}
+// 電子黒板にも「実施済み」を伝える（本日荷造り状態の day.busy に相乗り＝全PCの液晶から表示が消える）
+function busyPushBoard(key,who){
+  const url=(S.settings.gasUrl||'').trim();if(!url)return;
+  const rec={};rec[key]={by:who,at:new Date().toISOString()};
+  try{
+    fetch(url,{method:'POST',headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({action:'nizukuriStateSave',by:(S.settings.deviceName||'資材管理アプリ'),patch:{day:{busy:rec}}})}).catch(()=>{});
+  }catch(e){}
+}
 
 /* =================== LIVE (GAS) =================== */
 function fetchLive(){
