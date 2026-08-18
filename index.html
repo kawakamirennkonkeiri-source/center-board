@@ -2,6 +2,8 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
+<!-- ③ スマホ対応：端末の幅で表示する（無いとPC幅で描かれて字が読めないほど小さくなる） -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>センター電子黒板</title>
 <style>
   :root{
@@ -415,6 +417,16 @@
   .nz-row.is-done{ opacity:.62;}
   .nz-row.is-done .cust{ text-decoration:line-through; text-decoration-color:#9bbf9b;}
 
+  /* ② 真空・ピロー：超過分を先の発注へ振り分けるボタン */
+  .nz-row .nz-carry{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:6px;}
+  .nz-carry-btn{
+    appearance:none; cursor:pointer; font-family:inherit; font-size:12px; font-weight:800;
+    border:none; background:var(--violet); color:#fff; padding:7px 14px; border-radius:15px;
+  }
+  .nz-carry-btn:active{ transform:scale(0.97);}
+  .nz-carry-to{ font-size:11px; font-weight:800; color:var(--violet);}
+  .nz-carry-none{ font-size:11px; font-weight:700; color:var(--muted);}
+
   .nz-hint{ padding:2px 24px 20px; font-size:12px; color:var(--muted);}
   .nz-hint b{ color:var(--text-secondary);}
 
@@ -530,6 +542,94 @@
   .seisan-list:not(:empty) + .seisan-empty{ display:none;}
   .seisan-hint{ margin-top:18px; font-size:12px; color:var(--muted); line-height:1.6;}
   .seisan-hint b{ color:var(--text-secondary);}
+
+  /* =====================================================================
+     ③ スマホ表示（幅900px未満）
+     液晶用の「1画面フィット（縮小）」をやめて、1カラムに積み替えて縦スクロールで読む。
+     JS側（fitBoard）も body に .mobile を付けて拡大縮小をしない。
+     ===================================================================== */
+  @media (max-width: 900px){
+    html, body{ height:auto; }
+    body{ overflow:auto !important; -webkit-text-size-adjust:100%; }
+    .board{
+      position:static !important; transform:none !important;
+      left:auto; top:auto !important; width:100% !important; max-width:100%;
+      margin:0; border-radius:0; border-left:none; border-right:none; box-shadow:none;
+    }
+    #fit-spacer{ display:none !important; }
+
+    header{ padding:10px 14px; gap:8px; flex-wrap:wrap;}
+    header .title{ font-size:16px;}
+    header .title span{ font-size:11px;}
+    header .clock{ text-align:left;}
+    header .clock .date{ font-size:13px;}
+    header .clock .time{ font-size:26px;}
+
+    /* タブ＝横スクロール＋上部に貼り付け（指で切り替えやすく） */
+    .view-switch{ padding:0 6px; overflow-x:auto; -webkit-overflow-scrolling:touch; position:sticky; top:0; z-index:60;}
+    .view-switch .tab{ flex:0 0 auto; font-size:13px; padding:11px 13px; white-space:nowrap; border-bottom-width:3px;}
+    .view-switch .tab .ico{ margin-right:4px; font-size:14px;}
+
+    .alert-bar{ padding:8px 12px; flex-wrap:wrap;}
+    .target-cells{ grid-template-columns:1fr 1fr;}
+    .target-cell{ padding:12px 14px;}
+    .target-cell .val{ font-size:24px;}
+    .target-strip.predict .strip-head{ padding:9px 14px 2px;}
+    .qty-edit input{ font-size:16px;}
+    .finish-est{ font-size:20px;}
+
+    .main{ grid-template-columns:1fr; gap:10px; padding:10px 12px 16px;}
+    .card{ padding:12px 14px;}
+    .card h3{ font-size:14px;}
+    .stat-row{ grid-template-columns:1fr 1fr; gap:8px;}
+    .stat-tile{ padding:11px;}
+    .stat-tile .val{ font-size:25px;}
+    .material-grid{ grid-template-columns:1fr;}
+    .foot-grid{ grid-template-columns:1fr; padding:0 12px 14px;}
+    .help-time, .help-n{ font-size:16px;}
+    .md-modal .box{ width:94vw; padding:14px 16px;}
+
+    /* 本日荷造り＝1列。1行目は折り返して状態ボタンを下の段に */
+    .nz-toolbar{ padding:10px 12px; gap:8px;}
+    .nz-controls{ margin-left:0;}
+    .nz-jump{ font-size:16px;}
+    .nz-summary{ margin-left:0; width:100%; gap:18px;}
+    .nz-summary .s .val{ font-size:20px;}
+    .nz-table{ padding:8px 12px 6px;}
+    .nz-dayhead{ padding:8px 12px;}
+    .nz-dayhead .d{ font-size:17px;}
+    .nz-order-grid{ grid-template-columns:1fr; gap:8px;}
+    .nz-row .nz-r1{ grid-template-columns:24px 1fr auto;}
+    .nz-row .nz-r1 .nz-status{ grid-column:2 / -1; justify-self:start;}
+    .nz-row .cust{ font-size:16px;}
+    .nz-row .qc4 .cs{ font-size:18px;}
+    .nz-row .qc4 input{ font-size:16px;}   /* iOSで勝手にズームしないよう16px以上にする */
+    .nz-hint{ padding:2px 12px 18px;}
+
+    /* 配置図＝スマホでは横スクロールで見る（配置の操作はPC・液晶を推奨） */
+    .haichi-tab-toolbar{ padding:10px 12px 8px;}
+    .haichi-tab-toolbar .ttl{ font-size:15px;}
+    .haichi-frame-wrap{ padding:8px 0 12px; overflow-x:auto; -webkit-overflow-scrolling:touch;}
+    #layout-full-frame{ width:1180px; max-width:none; height:78vh; border-radius:0;}
+
+    /* 圃場・生産者＝カード1列。入力欄は指で押しやすい大きさに */
+    .hojo-wrap, .seisan-wrap{ padding:12px 12px 20px;}
+    .hojo-head .ttl, .seisan-head .ttl{ font-size:16px;}
+    .hojo-head .hojo-total, .seisan-head .seisan-total{ margin-left:0;}
+    .hojo-list, .seisan-list{ grid-template-columns:1fr;}
+    .hojo-input, .seisan-input{ min-width:0; width:100%; font-size:16px;}
+    .hojo-card .fval{ font-size:34px;}
+    .hojo-card .fedit, .seisan-size input, .seisan-funes-row .seisan-funes-input{ font-size:16px;}
+    .seisan-grid{ grid-template-columns:1fr;}
+    .seisan-namebtns .name-btn{ font-size:15px; padding:9px 16px;}
+  }
+  /* さらに狭いスマホ（iPhone SE 等） */
+  @media (max-width: 480px){
+    .target-cells{ grid-template-columns:1fr;}
+    .stat-row{ grid-template-columns:1fr;}
+    .nz-summary{ gap:12px;}
+    .view-switch .tab{ font-size:12px; padding:10px 10px;}
+  }
 </style>
 </head>
 <body>
@@ -621,7 +721,7 @@
             <div class="delta">圃場から持ってきた舟数</div></div>
           <div class="stat-tile"><div class="lbl">荷造りkg（実績）</div><div class="val"><span id="j-kg">--</span>kg</div>
             <div class="ampm-line"><span class="am">午前 <b id="j-kg-am">–</b></span><span class="pm">午後 <b id="j-kg-pm">–</b></span></div>
-            <div class="delta">作った分の合計（CS を除く）</div></div>
+            <div class="delta" id="j-kg-note">作った分の合計（CS・生産者分を除く）</div></div>
           <div class="stat-tile"><div class="lbl">歩留まり</div><div class="val"><span id="j-budomari">--</span><span style="font-size:15px;font-weight:600;">kg/舟</span></div>
             <div class="ampm-line"><span class="am">午前 <b id="j-bud-am">–</b></span><span class="pm">午後 <b id="j-bud-pm">–</b></span></div>
             <div class="delta">荷造りkg ÷ 舟数</div></div>
@@ -708,7 +808,10 @@
       <div id="nz-rows"><!-- 行をJSで生成 --></div>
     </div>
     <div class="nz-hint">状態のボタンを押すと <b>未確定 → 確定 → 作成済み</b> の順で切り替わります。「作成済み」にすると行に取り消し線が付きます。<br>
-      <b>累計</b>＝前日・前々日…<b>今日より前に作った分の合計</b>（自動。数字にマウスを乗せると日付ごとの内訳が出ます。手入力で修正も可）／<b>本日</b>＝今日作った分／<b>のこり</b>＝合計−累計−本日。</div>
+      <b>累計</b>＝前日・前々日…<b>今日より前に作った分の合計</b>（自動。数字にマウスを乗せると日付ごとの内訳が出ます。手入力で修正も可）／<b>本日</b>＝今日作った分／<b>のこり</b>＝合計−累計−本日。<br>
+      <b>真空・ピロー</b>で発注ぶんより多く作ると <b>↷ 超過◯c/s を先の発注へ振り分け</b> ボタンが出ます。押すと、<b>同じ日〜先の日</b>の発注へ日付の早い順に自動で振り分けます
+      （<b>ピロー</b>＝取引先は問いません／<b>真空</b>＝ｵｰｹｰ・ﾊﾛｰｽﾞ・その他・ｵｰｹｰ関西・万代は同じ取引先として相互に、それ以外は同じ取引先へ。<b>区分は完全に同じもの</b>だけ。<b>入数が違う発注へは㎏に直して</b>入れます）。
+      入りきらない分は<b>一番先の日の行に上乗せ</b>して「超過」表示のまま残るので、<b>翌日以降また同じボタンで先へ送れます</b>。作った合計は変わらないので<b>本日実績・歩留まりは動きません</b>。振り分け先が画面に無いときは「＋ 先の日を追加」で先の発注を表示してください。</div>
   </div><!-- /view-nizukuri -->
 
   <!-- ===== ① 配置図（独立タブ） ===== -->
@@ -766,7 +869,7 @@
       <div id="seisan-list" class="seisan-list"><!-- 生産者カードをJSで生成 --></div>
       <div class="seisan-empty" id="seisan-empty">まだ生産者が登録されていません。上の欄に生産者名を入れて「＋ 生産者を追加」を押してください。</div>
 
-      <div class="seisan-hint"><b>午前／午後</b>を選んでから<b>生産者のボタン</b>を押すと、その生産者のカードが追加されます（午前／午後は<b>カード上のボタンで後から変更</b>できます）。<b>🚢 収穫舟数</b>は生産者が持ち込んだ舟数で、<b>電子黒板の「本日の荷造り舟数（予定）」にだけ加算</b>されます。<b>「本日実績（荷造り舟数）」には含めません</b>（＝本日の歩留まりは自社の圃場舟数だけで計算します）。洗い・土付きの各サイズは <b>c/s（ケース）</b> で入れると <b>出来高kg＝c/s×サイズ</b> を自動計算。<b>半端</b>と<b>C・S</b>は<b>㎏で直接</b>入力します（合計＝洗い＋土付き＋半端、C・Sは別集計）。c/s・出来高kgは生産者ごとの記録用です。記録はGoogleスプレッドシート「生産者記録」に日付ごと保存され、他のPC・翌日でも残ります。</div>
+      <div class="seisan-hint"><b>午前／午後</b>を選んでから<b>生産者のボタン</b>を押すと、その生産者のカードが追加されます（午前／午後は<b>カード上のボタンで後から変更</b>できます）。<b>🚢 収穫舟数</b>は生産者が持ち込んだ舟数で、<b>電子黒板の「本日の荷造り舟数（予定）」にだけ加算</b>されます。<b>「本日実績（荷造り舟数）」には含めません</b>。また、ここに入力した<b>出来高kg（合計・C・S）は「本日実績の荷造りkg／CSキロ」から自動で差し引きます</b>（＝本日の歩留まりは<b>自社の圃場ぶんの舟数・kgだけ</b>で計算します）。洗い・土付きの各サイズは <b>c/s（ケース）</b> で入れると <b>出来高kg＝c/s×サイズ</b> を自動計算。<b>半端</b>と<b>C・S</b>は<b>㎏で直接</b>入力します（合計＝洗い＋土付き＋半端、C・Sは別集計）。c/s・出来高kgは生産者ごとの記録用です。記録はGoogleスプレッドシート「生産者記録」に日付ごと保存され、他のPC・翌日でも残ります。</div>
     </div>
   </div><!-- /view-seisan -->
 
@@ -828,6 +931,17 @@
     });
   }
 
+  /* ===== ③ スマホ判定：幅900px未満は「スマホ表示」（縮小フィットをやめて1カラム＋縦スクロール） ===== */
+  //   CSSの @media と同じ 900px。body に .mobile を付けるので、必要ならJS側でも分岐できる。
+  function isMobileView_(){
+    try{ return window.innerWidth < 900; }catch(e){ return false; }
+  }
+  function applyMobileClass_(){
+    var m = isMobileView_();
+    if(document.body.classList.contains('mobile') !== m) document.body.classList.toggle('mobile', m);
+    return m;
+  }
+
   /* ===== ⑦ 1画面完結：.board をウィンドウの幅・高さに合わせて拡大縮小（各シートがはみ出さない） ===== */
   var _fitRAF = null;
   function fitBoard(){
@@ -837,6 +951,13 @@
       var spacer = document.getElementById('fit-spacer');
       if(!spacer){ spacer = document.createElement('div'); spacer.id = 'fit-spacer'; document.body.appendChild(spacer); }
       if(document.body.classList.contains('nofit')){ b.style.transform='none'; b.style.top=''; spacer.style.height='0px'; return; }
+      // ③ スマホ（幅900px未満）＝縮小フィットはしない。CSSで1カラムに積み替え、そのまま縦スクロールで読む。
+      if(applyMobileClass_()){
+        b.style.transform = 'none'; b.style.top = '';
+        spacer.style.height = '0px';
+        document.body.style.overflow = 'auto';
+        return;
+      }
       // 本日荷造り・配置図は「幅だけ合わせて縦スクロール」＝縮小しないので、タブを切り替えても表示サイズが変わらない。
       //   （配置図は高さフィットで縮むと本日荷造りと大きさが変わってしまうため、同じ幅フィット＋スクロールに統一）
       // それ以外のタブ（電子黒板ダッシュボード等）は従来どおり幅・高さ両方に1画面フィット。
@@ -948,6 +1069,170 @@
   function nzFmtKg(n){ return Math.round(n).toLocaleString('ja-JP'); }
   function nzBunruiClass(b){ return b==='洗い'?'arai':(b==='真空'?'shinku':((b==='土付き'||b==='土')?'tsuchi':'')); }
 
+  /* ===== ② 真空・ピロー：発注ぶんを超えて作った分を「先の発注」へ振り分け =====
+     例）本日の発注 100c/s のところ 130c/s 作った → 超過 30c/s を、同じ日〜先の日の発注へボタン1つで付け替える。
+
+     ▼ 振り分け先の決め方（曽我さん確認済み・2026-08-18）
+       ・区分は「完全に同じ」ものだけ（「真空」と「真空(無地）」は別物として扱う＝袋の印刷が違うため）。
+       ・区分が【ピロー】＝取引先は問わない（ピローならどの取引先の発注へでも回す）。
+       ・区分が【真空】＝ｵｰｹｰ／ﾊﾛｰｽﾞ／その他／ｵｰｹｰ関西／万代 の5社は「同じ取引先」とみなして相互に回す。
+                       この5社以外の真空は、同じ取引先の発注にだけ回す。
+       ・日付は「同じ日（自分以外）」も含め、そこから先の日へ。日付の早い順に、のこりのぶんだけ詰める。
+       ・入数（1ケースの㎏）が違う発注へは【㎏に直して】入れる（30c/s×10㎏=300㎏ → 入数5なら60c/s）。
+       ・全部詰めても余ったら【一番先の日の行に上乗せ】＝その行が「超過」表示のまま残るので、
+         翌日以降、先の発注が画面に出てきたら、また同じボタンで先へ送れる。
+       ・振り分け先が画面に1件も無いときは、ボタンの代わりに「＋ 先の日を追加」の案内を出す（自動では読みに行かない）。
+     ※作った合計（㎏）は変わらないので、本日実績のkg・歩留まりは動かない。
+     ※「本日作った分」から先に回し、足りなければ「累計（前日までに作った分）」から回す。 */
+  var NZ_VAC_GROUP = ['オーケー','ハローズ','その他','万代'];   // 真空で「同じ取引先」とみなす5社（ｵｰｹｰ関西は「オーケー」で前方一致）
+  // 半角カナ・全角英数・空白のゆれを吸収して比べる（発注書は ｵｰｹｰ / ﾋﾟﾛｰ のような半角カナ表記）
+  function nzNorm_(s){
+    s = String(s == null ? '' : s);
+    try{ s = s.normalize('NFKC'); }catch(e){}
+    return s.replace(/[\s　]/g, '').toUpperCase();
+  }
+  // 区分から「真空系／ピロー系」を判定（それ以外＝振り分けの対象外）
+  function nzZoneOf_(o){
+    var b = nzNorm_(o && o.bunrui);
+    if(!b) return '';
+    if(b.indexOf('ピロー') >= 0) return 'pillow';
+    if(b.indexOf('真空')   >= 0) return 'vac';
+    return '';
+  }
+  function nzIsVacPillow(o){ return nzZoneOf_(o) !== ''; }
+  // 真空の5社グループに属していれば、そのグループ名を返す
+  function nzVacGroupOf_(cust){
+    var c = nzNorm_(cust);
+    for(var i=0;i<NZ_VAC_GROUP.length;i++){ if(c.indexOf(nzNorm_(NZ_VAC_GROUP[i])) === 0) return NZ_VAC_GROUP[i]; }
+    return '';
+  }
+  // src の超過を t へ回してよいか
+  function nzCarryMatch_(src, t){
+    var z = nzZoneOf_(src); if(!z) return false;
+    if(nzNorm_(src.bunrui) !== nzNorm_(t.bunrui)) return false;        // 区分は完全一致
+    if(z === 'pillow') return true;                                   // ピローは取引先を問わない
+    var g0 = nzVacGroupOf_(src.cust);
+    if(g0) return !!nzVacGroupOf_(t.cust);                            // 5社グループ内は相互OK
+    return nzNorm_(src.cust) === nzNorm_(t.cust);                     // グループ外は同じ取引先だけ
+  }
+  function nzDateIdx_(dateKey){ for(var i=0;i<NZ_DATES.length;i++){ if(NZ_DATES[i].key === dateKey) return i; } return -1; }
+  // その行の超過（作った分 − 発注）。0以下なら超過なし。
+  function nzExcessOf(o){
+    var key = nzRowKey(o);
+    return Math.max(0, nzMadePrevEff(key) + nzMadeToday(key) - Math.round(o.qty||0));
+  }
+  // 振り分け先の候補＝同じ日（自分以外）〜先の日でマッチする行を日付順に。room（のこり）は0以下でも返す。
+  function nzCarryTargets_(o){
+    var i0 = nzDateIdx_(o.date), out = [];
+    NZ_ORDERS.forEach(function(t, pos){
+      if(t === o || !nzCarryMatch_(o, t)) return;
+      var i = nzDateIdx_(t.date); if(i < 0 || i < i0) return;          // 同じ日も対象（i === i0 を含む）
+      var key = nzRowKey(t);
+      out.push({ o:t, key:key, idx:i, pos:pos, room:Math.round(t.qty||0) - nzMadePrevEff(key) - nzMadeToday(key) });
+    });
+    out.sort(function(a,b){ return (a.idx - b.idx) || (a.pos - b.pos); });
+    return out;
+  }
+  function nzCarryLabel_(c){ var d = NZ_DATES[c.idx]; return (d ? d.label : '先の日') + ' ' + c.o.cust; }
+  // 超過をどこへ何c/s入れるかを組み立てる（㎏で配り、各行の入数でケースに直す）
+  function nzCarryPlan_(o, excessCs){
+    var unit0 = Number(o.nyusu) || 0;
+    var i0  = nzDateIdx_(o.date);
+    var all = nzCarryTargets_(o);
+    // 「余りの上乗せ」先は必ず“先の日”の行に限る（同じ日の行に乗せると、その行からこちらへ押し返せてしまうため）
+    var later = all.filter(function(c){ return c.idx > i0; });
+    if(!all.length || !unit0) return { all:all, later:later, plan:[], moveKg:0, dropCs:0 };
+    var remKg = excessCs * unit0, plan = [], byKey = {};
+    var add = function(c, cs, over){
+      var ut = Number(c.o.nyusu) || 0;
+      var p = byKey[c.key];
+      if(p){ p.cs += cs; p.kg += cs * ut; p.over = p.over || over; }
+      else { p = { c:c, cs:cs, kg:cs * ut, over:over }; byKey[c.key] = p; plan.push(p); }
+      return cs * ut;
+    };
+    all.forEach(function(c){
+      if(remKg <= 1e-9 || c.room <= 0) return;
+      var ut = Number(c.o.nyusu) || 0; if(!ut) return;
+      var cs = Math.min(c.room, Math.round(Math.min(remKg, c.room * ut) / ut));
+      if(cs > 0) remKg -= add(c, cs, false);
+    });
+    if(remKg > 1e-9 && later.length){        // 入りきらない余り＝一番先の日の行に上乗せ（超過として残す）
+      var last = later[later.length-1], ul = Number(last.o.nyusu) || 0;
+      // ★端数を1ケースに切り上げない（入数が違う行への丸めで、余っていないのに1c/s増えてしまうため）
+      var cs2 = (ul > 0) ? Math.round(remKg / ul) : 0;
+      if(cs2 > 0) remKg -= add(last, cs2, true);
+    }
+    // 実際に動かした㎏から、元の行で落とすケース数を決める（入数が違うと㎏→ケースで端数が出るため）
+    var movedKg = plan.reduce(function(a,p){ return a + p.kg; }, 0);
+    var dropCs  = Math.max(0, Math.min(excessCs, Math.round(movedKg / unit0)));
+    return { all:all, later:later, plan:plan, moveKg:movedKg, dropCs:dropCs };
+  }
+  // 行に出す「振り分け」欄のHTML（超過なし＝空文字）
+  function nzCarryHtml_(o){
+    if(!nzIsVacPillow(o)) return '';
+    var ex = nzExcessOf(o); if(ex <= 0) return '';
+    var U  = (o.unit === 'kg') ? '㎏' : 'c/s';
+    var r  = nzCarryPlan_(o, ex);
+    if(!r.all.length){
+      return '<span class="nz-carry-none">超過 ' + nzFmtKg(ex) + U + '：この先の同じ荷造りの発注が画面にありません（「＋ 先の日を追加」で表示すると振り分けできます）</span>';
+    }
+    if(!r.plan.length || r.dropCs <= 0){
+      return '<span class="nz-carry-none">超過 ' + nzFmtKg(ex) + U + '：'
+           + (r.later.length ? '端数のため振り分けできません'
+                             : '翌日以降の同じ荷造りの発注が画面にありません（「＋ 先の日を追加」で表示すると振り分けできます）') + '</span>';
+    }
+    var to = r.plan.slice(0,2).map(function(p){ return nzCarryLabel_(p.c); }).join('・') + (r.plan.length > 2 ? ' ほか' : '');
+    return '<button class="nz-carry-btn" type="button">↷ 超過 ' + nzFmtKg(r.dropCs) + U + ' を先の発注へ振り分け</button>' +
+           '<span class="nz-carry-to">→ ' + to + '</span>';
+  }
+  function nzCarryOver(gi){
+    var o = NZ_ORDERS[gi]; if(!o) return;
+    var key = nzRowKey(o), total = Math.round(o.qty||0), unit0 = Number(o.nyusu)||0;
+    var prev = nzMadePrevEff(key), today = nzMadeToday(key);
+    var excess = prev + today - total;
+    if(excess <= 0){ alert('超過分はありません。'); return; }
+    var r = nzCarryPlan_(o, excess);
+    if(!r.all.length){
+      alert('振り分け先がありません。\nこの先に同じ荷造り（同じ区分／真空は5社グループ・ピローは取引先不問）の発注が画面にありません。\n「＋ 先の日を追加」で先の発注を表示すると振り分けできます。');
+      return;
+    }
+    if(!r.plan.length || r.dropCs <= 0){
+      alert(r.later.length ? '端数のため振り分けできませんでした。'
+                           : '翌日以降に同じ荷造りの発注が画面にありません。\n「＋ 先の日を追加」で先の発注を表示すると振り分けできます。');
+      return;
+    }
+    var U = (o.unit === 'kg') ? '㎏' : 'c/s';
+    var mixed = r.plan.some(function(p){ return (Number(p.c.o.nyusu)||0) !== unit0; });
+    var msg = '「' + o.cust + (o.bunrui ? '／' + o.bunrui : '') + '」の超過 ' + nzFmtKg(r.dropCs) + U
+            + '（' + nzFmtKg(r.moveKg) + '㎏）を先の発注へ振り分けます。\n\n'
+            + r.plan.map(function(p){
+                return '　' + nzCarryLabel_(p.c) + '／' + (p.c.o.bunrui||'') + '　+' + nzFmtKg(p.cs)
+                     + ((p.c.o.unit === 'kg') ? '㎏' : 'c/s') + '（' + nzFmtKg(p.kg) + '㎏）'
+                     + (p.over ? '　※発注ぶんを超えて上乗せ（明日また振り分けできます）' : '');
+              }).join('\n')
+            + (mixed ? '\n\n※ 入数が違う発注へは㎏に直して入れています。' : '')
+            + '\n\nよろしいですか？';
+    if(!confirm(msg)) return;
+    // 元の行：超過ぶんを落とす（＝ちょうど発注ぶんになる）。本日作った分から先に、足りなければ累計から。
+    var fromToday = Math.min(r.dropCs, today), fromPrev = r.dropCs - fromToday;
+    if(fromToday > 0){ nzSetMadeToday(key, today - fromToday);   nzPushToSheet(o, nzTodayStr(),     today - fromToday); }
+    if(fromPrev  > 0){ nzSetPrevOverride(key, prev - fromPrev);  nzPushToSheet(o, nzYesterdayStr(), prev  - fromPrev);  }
+    // 先の行：作った日はそのまま（本日ぶん→本日、累計ぶん→累計）で足す
+    var todayKg = fromToday * unit0, prevKg = fromPrev * unit0;
+    r.plan.forEach(function(p){
+      var ut = Number(p.c.o.nyusu) || 0; if(!ut) return;
+      // 片方しか無いときは丸めで混ざらないよう全部そちらへ寄せる
+      var csToday = (prevKg  <= 1e-9) ? p.cs
+                  : (todayKg <= 1e-9) ? 0
+                  : Math.min(p.cs, Math.round(Math.min(todayKg, p.kg) / ut));
+      var csPrev  = p.cs - csToday;
+      todayKg -= csToday * ut; prevKg -= csPrev * ut;
+      if(csToday > 0){ var nt = nzMadeToday(p.c.key) + csToday;    nzSetMadeToday(p.c.key, nt);    nzPushToSheet(p.c.o, nzTodayStr(),     nt); }
+      if(csPrev  > 0){ var np = nzMadePrevEff(p.c.key) + csPrev;   nzSetPrevOverride(p.c.key, np); nzPushToSheet(p.c.o, nzYesterdayStr(), np); }
+    });
+    nzRender();
+    if(typeof updateJissekiFromOps==='function') updateJissekiFromOps();
+  }
   function nzRender(){
     const wrap = document.getElementById('nz-rows');
     wrap.innerHTML = '';
@@ -1013,12 +1298,25 @@
             `<div class="qi prev"><span class="ql">累計</span><input class="q-prev" type="number" min="0" step="1" inputmode="numeric" value="${prevCs||''}" placeholder="0" title="${prevTip}"><span class="qkg prev-kg">${kg2(prevCs)}</span></div>`+
             `<div class="qi made"><span class="ql">本日</span><input class="q-made" type="number" min="0" step="1" inputmode="numeric" value="${todayCs||''}" placeholder="0"><span class="qkg made-kg">${kg2(todayCs)}</span></div>`+
             `<div class="qi rest${restCs<=0?' done':''}"><span class="ql">のこり</span><span class="cs"><b class="rest-v">${csTxt(restCs)}</b><small>${U}</small></span><span class="qkg rest-kg">${isKg?'':`${restKgTxt(restCs)}<small>kg</small>`}</span></div>`+
-          `</div>`;
+          `</div>`+
+          // ② 真空・ピローで発注ぶんを超えて作ったときだけ「先の発注へ振り分け」ボタンを出す枠
+          (nzIsVacPillow(o) ? `<div class="nz-carry" data-carry style="display:none"></div>` : ``);
         row.querySelector('.nz-status').onclick = () => {
           NZ_ORDERS[gi].st = NZ_ST[NZ_ORDERS[gi].st].next;
           nzSaveStatusOne(NZ_ORDERS[gi]._id, NZ_ORDERS[gi].st);   // ブラウザに保存（翌日も残る）
           nzRender();
         };
+        // ② 「先の発注へ振り分け」欄を描き直す（超過が出た／無くなったで出し入れする）
+        const carryBox = row.querySelector('[data-carry]');
+        const refreshCarry = () => {
+          if(!carryBox) return;
+          const html = nzCarryHtml_(o);
+          carryBox.innerHTML = html;
+          carryBox.style.display = html ? '' : 'none';
+          const cb = carryBox.querySelector('.nz-carry-btn');
+          if(cb) cb.onclick = (e) => { e.stopPropagation(); nzCarryOver(gi); };
+        };
+        refreshCarry();
         // ③ 前日作成（手入力で修正可）＋本日作った の2入力。のこり＝合計−前日−本日 を即時更新、確定で保存。
         const prevInp = row.querySelector('.q-prev');
         const inp     = row.querySelector('.q-made');
@@ -1037,6 +1335,7 @@
           prevInp.addEventListener('input', recompute);
           prevInp.addEventListener('change', () => {
             nzSetPrevOverride(key, readN(prevInp));   // 前日作成の手動修正（本日実績には影響しない）
+            refreshCarry();                            // ② 超過の有無に合わせて振り分けボタンを出し入れ
             if(typeof updateJissekiFromOps==='function') updateJissekiFromOps();
             nzPushToSheet(o, nzYesterdayStr(), readN(prevInp));   // ② 前日作った分＝前日(昨日)の生産ログへ
           });
@@ -1046,6 +1345,7 @@
           inp.addEventListener('input', recompute);
           inp.addEventListener('change', () => {
             nzSetMadeToday(key, readN(inp));           // 本日作った分＝今日の生産日に保存（本日実績に反映）
+            refreshCarry();                            // ② 超過の有無に合わせて振り分けボタンを出し入れ
             if(typeof updateJissekiFromOps==='function') updateJissekiFromOps();
             nzPushToSheet(o, nzTodayStr(), readN(inp));   // ② 本日作った分＝今日の生産ログへ
           });
@@ -1657,6 +1957,7 @@
     if(tot>0 && !confirm('「'+p.name+'（'+(p.ampm==='PM'?'午後':'午前')+'）」（'+tot+' c/s）を削除しますか？')) return;
     SEISAN.list.splice(i,1);
     seisanRender(); seisanPushSave();
+    seisanApplyToBoard_();   // ① 削除したぶんも本日実績のkgへ即反映
   }
   function seisanSetCell(i, key, val){
     var p=SEISAN.list[i]; if(!p) return;
@@ -1664,7 +1965,8 @@
     var num=Number(val)||0;
     var v = kgDirect ? Math.max(0, Math.round(num*10)/10) : Math.max(0, Math.round(num));   // C/S は0.1kg単位、舟数は整数
     if(v>0) p.rows[key]=v; else delete p.rows[key];
-    seisanRenderTotals(); seisanPushSave();
+    seisanPushSave();
+    seisanApplyToBoard_();   // ① 生産者kgは本日実績の荷造りkgから差し引くので、入力のたびに板を更新
   }
   // ③ 収穫舟数：入力（本日の荷造り舟数・本日実績へ加算＝歩留まりに反映）
   function seisanSetFunes(i, val){
@@ -2046,8 +2348,19 @@
     if(!b) return false;
     return /^[CＣ][\/／・]?[SＳ]$/.test(b) || b === 'CS' || b === 'C／S';
   }
-  // 本日実績kg＝表示中の全注文（翌日以降の先行作成も含む）の「本日作った分」×入数
+  // ① 生産者から持ち込まれた分のkg（＝生産者タブの出来高kg）。本日実績の荷造りkgからは差し引く。
+  //    main＝洗い＋土付き＋半端（歩留まりの分子から除外）／cs＝C・S（CSキロから除外）
+  //    ※舟数（分母）にも生産者ぶんを入れていないので、kg（分子）からも外して単位をそろえる。
+  function seisanKgForBoard_(){
+    var m = 0, c = 0;
+    try{
+      (SEISAN.list || []).forEach(function(p){ var o = seisanKgSplit(p); m += o.main; c += (o.C + o.S); });
+    }catch(e){}
+    return { main:m, cs:c, total:m + c };
+  }
+  // 本日実績kg＝表示中の全注文（翌日以降の先行作成も含む）の「本日作った分」×入数 − 生産者ぶん
   //   all＝全ての荷造りキロ（CS込み）／cs＝区分C/Sぶん／kg＝荷造りキロ（CSを除く＝歩留まりの分子）
+  //   seisan＝差し引いた生産者ぶんのkg（表示用）／rawAll＝差し引く前の合計
   function opsTodayMadeKgParts(){
     var all = 0, cs = 0;
     try{
@@ -2058,7 +2371,11 @@
         if(nzIsCS(o)) cs += v;
       });
     }catch(e){}
-    return { all:all, cs:cs, kg:all - cs };
+    // ① 生産者の㎏はセンターの荷造り実績ではないので差し引く（0未満にはしない）
+    var sz  = seisanKgForBoard_();
+    var kg  = Math.max(0, (all - cs) - sz.main);
+    var cs2 = Math.max(0, cs - sz.cs);
+    return { all:kg + cs2, cs:cs2, kg:kg, seisan:sz.total, rawAll:all };
   }
   function opsTodayMadeKg(){ return opsTodayMadeKgParts().kg; }   // 互換：荷造りkg（CSを除く）
   // ④ 本日実績の荷造り舟数＝圃場から持ってきた舟数だけ（生産者の収穫舟数は実績に含めない）
@@ -2070,6 +2387,8 @@
     haichiSetText_('j-funes', haichiNum_(funes));
     haichiSetText_('j-kg',    haichiNum_(p.kg));
     haichiSetText_('j-cs-kg', haichiNum_(p.cs));
+    // ① 生産者ぶんを差し引いたときは、いくら差し引いたかを小さく出す
+    haichiSetText_('j-kg-note', '作った分の合計（CS・生産者分を除く）' + (p.seisan > 0 ? '　生産者 −' + haichiNum_(p.seisan) + 'kg' : ''));
     var bud = funes > 0 ? (p.kg / funes) : null;          // 歩留まり＝荷造りkg（CS除く） ÷ 舟数
     haichiSetText_('j-budomari', bud != null ? haichiNum_(bud, 1) : '--');
     var kak = p.all > 0 ? (p.cs / p.all * 100) : null;    // 加工率＝CSキロ ÷ 全ての荷造りキロ
