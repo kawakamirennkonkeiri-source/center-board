@@ -151,7 +151,9 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
   </div>
   <div class="hint">シフト表の<b>サイズ列</b>に書いてある各人の手袋サイズと、その日のシフトが<b>「休」以外＝出勤</b>の人数から、
     <b>使用枚数＝出勤人数 × 1人あたりの枚数</b> を日別・サイズ別に計算します。<b>先の日のシフト</b>も同じように読むので、
-    <b>「45日分の在庫があるか」の判定</b>にもそのまま使えます（③の基準）。荷造数（発注書）とは無関係なので BOM には登録しません。</div>
+    <b>「45日分の在庫があるか」の判定</b>にもそのまま使えます（③の基準）。荷造数（発注書）とは無関係なので BOM には登録しません。<br>
+    サイズは<b>どれか1枚の月シートに書いてあれば全部の月に効きます</b>（氏名で突き合わせ）。</div>
+  <div id="gloveDiag" class="hint" style="display:none"></div>
   <div class="tablewrap">
     <table id="gloveTable">
       <thead><tr><th class="l">サイズ</th><th class="l">割り当てる資材</th><th>現在庫</th><th>実績 使用枚数<br>(起点日〜基準日)</th><th>1日あたり<br>(平均)</th><th>今後の予定<br>(枚)</th><th class="l">状態</th></tr></thead>
@@ -973,8 +975,22 @@ function fetchGloves(silent){
   // 起点日〜（今日＋120日）＝過去の実績と、提出済みの先のシフトを両方まとめて取る
   const from=S.settings.startDate||todayStr();
   sc.src=url+(url.includes('?')?'&':'?')+'type=gloveUsage&start='+encodeURIComponent(from)+'&callback='+cb;
-  sc.onerror=()=>{ if(!silent)alert('取得に失敗しました。GASのURL・デプロイをご確認ください。');sc.remove();try{delete window[cb];}catch(e){}};
+  sc.onerror=()=>{ gloveSetDiag({error:'GASにつながりませんでした（URLかデプロイをご確認ください）'});
+    if(!silent)alert('取得に失敗しました。GASのURL・デプロイをご確認ください。');sc.remove();try{delete window[cb];}catch(e){}};
   document.body.appendChild(sc);
+}
+// 1→A, 2→B …（GASが返すサイズ列の番号を、シートの列の文字にして見せる）
+function colLetter(n){ n=Number(n||0); let s=''; while(n>0){ const m=(n-1)%26; s=String.fromCharCode(65+m)+s; n=(n-1-m)/26; } return s||'?'; }
+// 取得結果の診断を残す（うまくいかない時に画面で原因が分かるように）
+function gloveSetDiag(d){
+  S.glove=S.glove||{};
+  const days=(d&&d.days&&d.days.length)||0;
+  S.glove.diag={ at:new Date().toISOString(), days,
+    error:(d&&d.error)||'', notes:(d&&d.notes)||[],
+    sizeFrom:(d&&d.sizeFrom)||null, sheets:(d&&d.sheets)||null,
+    // 「type を shift / haichi / … で指定してください」＝手袋に対応していない古いGASが動いている
+    stale: !!(d&&typeof d.error==='string'&&/type を/.test(d.error)) };
+  save(); renderGloves();
 }
 // 起動時に1日1回だけ、シフトの手袋サイズを自動で取り直す（画面を開くだけで最新になる）
 function autoFetchGloves(){
@@ -985,7 +1001,13 @@ function autoFetchGloves(){
   fetchGloves(true);
 }
 function applyGloves(d,silent){
-  if(!d||d.error&&!(d.days&&d.days.length)){ if(silent)return; alert('シフトから手袋を読めませんでした。\n'+((d&&d.error)||'')+'\n\nシフト表のサイズ列（S/M/L）をご確認ください。');return;}
+  if(!d||!(d.days&&d.days.length)){
+    gloveSetDiag(d||{error:'GASから応答がありませんでした'});
+    if(silent)return;
+    const st=(S.glove.diag&&S.glove.diag.stale);
+    alert(st? 'いま動いているGASが古いバージョンです（手袋にまだ対応していません）。\n\nGASを新しい内容に貼り替えて「デプロイを管理 → 新バージョン」で再デプロイしてください。'
+            : 'シフトから手袋を読めませんでした。\n'+((d&&d.error)||'')+'\n\nシフト表のサイズ列（A列）に S/M/L が入っているかご確認ください。');
+    return;}
   S.glove.perPerson=Number(d.perPerson||S.glove.perPerson||8)||8;
   S.glove.sizes=(d.sizes||[]).slice();
   S.glove.missing=(d.missing||[]).slice();
@@ -998,6 +1020,7 @@ function applyGloves(d,silent){
   });
   S.glove.days=days;
   gloveAutoMap();
+  gloveSetDiag(d);
   save();recalcAll();renderGloves();
   if(silent)return;
   alert('✓ シフトから取得しました。\n対象 '+(d.days||[]).length+'日分 ／ サイズ '+((d.sizes||[]).join('・')||'—')+' ／ 1人 '+S.glove.perPerson+'枚'+
@@ -1035,6 +1058,25 @@ function renderGloves(){
         <td class="l">${state}</td></tr>`;
     }).join('')
     :'<tr><td colspan="7" class="l muted">まだシフトから取得していません。上の「🔗 シフトから取得（GAS）」を押してください。</td></tr>';
+  }
+  // 取得の診断（うまくいっていない時に、何が起きたかをこの場で出す）
+  const dg=document.getElementById('gloveDiag'), g=S.glove.diag;
+  if(dg){
+    if(!g){ dg.style.display='none'; dg.innerHTML=''; }
+    else if(g.days>0){
+      dg.style.display=''; dg.style.borderColor=''; dg.style.color='';
+      const from=(g.sizeFrom||[]).map(x=>esc(x.sheet)+'（'+colLetter(x.sizeCol)+'列・'+x.count+'人）').join('・');
+      dg.innerHTML='✅ <b>取得できました</b>：'+g.days+'日分'+
+        (from?'　／　サイズの出どころ： <b>'+from+'</b>':'　／　<span style="color:var(--danger)">サイズがどのシートにも見つかりません</span>')+
+        ((g.notes&&g.notes.length)?('<br><span class="muted">'+esc(g.notes.join(' ／ '))+'</span>'):'');
+    }else{
+      dg.style.display=''; dg.style.borderColor='var(--danger)'; dg.style.color='var(--danger)';
+      dg.innerHTML= g.stale
+        ? '⚠️ <b>いま動いているGASが古いバージョンです</b>（手袋にまだ対応していません）。<br>'+
+          'GASを新しい内容に貼り替えて「デプロイを管理 → 鉛筆 → バージョン＝<b>新バージョン</b> → デプロイ」をしてください。'
+        : '⚠️ <b>取得できませんでした</b>：'+esc(g.error||'原因不明')+
+          ((g.notes&&g.notes.length)?('<br>'+esc(g.notes.join(' ／ '))):'');
+    }
   }
   const meta=document.getElementById('gloveMeta');
   if(meta)meta.textContent=(S.glove.fetchedAt?('取得 '+S.glove.fetchedAt.slice(0,16).replace('T',' ')+'　'):'')+
