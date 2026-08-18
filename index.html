@@ -440,10 +440,25 @@
   .haichi-tab-toolbar .hint b{ color:var(--red);}
   /* ② 配置図タブ：トグルは配置図ツール（iframe）内のタブ下に移設。ここはフレームのみ。 */
   .haichi-frame-wrap{ padding:10px 20px 16px; background:var(--page);}
-  #layout-full-frame{
+  #layout-full-frame, #layout-plan-frame{
     width:100%; height:860px;
     border:1px solid var(--border); border-radius:12px; background:#fff;
   }
+
+  /* ===== 🔮 配置図（予測）タブ：日付えらび ===== */
+  .plan-picker{ display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+  .plan-picker input[type="date"]{
+    font-family:inherit; font-size:16px; font-weight:800; color:var(--text-primary);
+    padding:6px 10px; border:2px solid var(--border); border-radius:8px; background:#fff;
+  }
+  .plan-btn{
+    appearance:none; cursor:pointer; font-family:inherit; font-size:14px; font-weight:800;
+    padding:7px 12px; border:2px solid var(--border); border-radius:8px; background:#fff; color:var(--text-secondary);
+  }
+  .plan-btn:hover{ border-color:var(--blue); color:var(--blue-deep);}
+  .plan-btn.go{ background:var(--blue-deep); border-color:var(--blue-deep); color:#fff;}
+  .plan-label{ font-size:18px; font-weight:800; color:var(--blue-deep);}
+  .plan-status{ font-size:12px; font-weight:700; color:var(--muted);}
 
   /* ===== ⑥ 圃場（畑）タブ ===== */
   .hojo-wrap{ padding:20px 24px 28px;}
@@ -610,7 +625,9 @@
     .haichi-tab-toolbar{ padding:10px 12px 8px;}
     .haichi-tab-toolbar .ttl{ font-size:15px;}
     .haichi-frame-wrap{ padding:8px 0 12px; overflow-x:auto; -webkit-overflow-scrolling:touch;}
-    #layout-full-frame{ width:1180px; max-width:none; height:78vh; border-radius:0;}
+    #layout-full-frame, #layout-plan-frame{ width:1180px; max-width:none; height:78vh; border-radius:0;}
+    .plan-picker{ padding:0 12px;}
+    .plan-picker input[type="date"]{ font-size:16px;}   /* iOSで勝手にズームしないよう16px以上 */
 
     /* 圃場・生産者＝カード1列。入力欄は指で押しやすい大きさに */
     .hojo-wrap, .seisan-wrap{ padding:12px 12px 20px;}
@@ -644,6 +661,7 @@
     <button class="tab active" id="tab-board"    onclick="switchView('board')"><span class="ico">📊</span>電子黒板</button>
     <button class="tab"        id="tab-nizukuri" onclick="switchView('nizukuri')"><span class="ico">📦</span>本日荷造り</button>
     <button class="tab"        id="tab-haichi"   onclick="switchView('haichi')"><span class="ico">🗺️</span>配置図</button>
+    <button class="tab"        id="tab-yohaichi" onclick="switchView('yohaichi')"><span class="ico">🔮</span>配置図（予測）</button>
     <button class="tab"        id="tab-hojo"     onclick="switchView('hojo')"><span class="ico">🚜</span>圃場（畑）</button>
     <button class="tab"        id="tab-seisan"   onclick="switchView('seisan')"><span class="ico">🧑‍🌾</span>生産者</button>
   </div>
@@ -826,6 +844,25 @@
     </div>
   </div><!-- /view-haichi -->
 
+  <!-- ===== 🔮 配置図（予測）：明日以降の日付を選ぶと、その日のシフトから配置を先に見られる ===== -->
+  <div id="view-yohaichi" class="view">
+    <div class="haichi-tab-toolbar">
+      <div class="ttl">🔮 配置図（予測）</div>
+      <div class="plan-picker">
+        <button class="plan-btn" onclick="planShiftDays(-1)" title="前の日へ">◀</button>
+        <input type="date" id="plan-date" onchange="planOnPick()">
+        <button class="plan-btn" onclick="planShiftDays(1)" title="次の日へ">▶</button>
+        <button class="plan-btn go" onclick="planGoNextShift()">次のシフト日</button>
+        <span class="plan-label" id="plan-label"></span>
+        <span class="plan-status" id="plan-status"></span>
+      </div>
+      <div class="hint">明日以降の<b>シフト（予定）</b>から自動で配置します。<b>当日の配置図とは別に保存</b>され、全PC（液晶）で同じ予測が見られます。</div>
+    </div>
+    <div class="haichi-frame-wrap">
+      <iframe id="layout-plan-frame" title="配置図（予測）"></iframe>
+    </div>
+  </div><!-- /view-yohaichi -->
+
   <!-- ===== ⑥ 圃場（畑）舟数の記録タブ ===== -->
   <div id="view-hojo" class="view">
     <div class="hojo-wrap">
@@ -902,7 +939,7 @@
   function openLayoutModal(){ switchView('haichi'); }
 
   /* ===== 画面切り替え（電子黒板／本日荷造り／配置図／圃場／生産者） ===== */
-  const VIEW_NAMES = ['board','nizukuri','haichi','hojo','seisan'];
+  const VIEW_NAMES = ['board','nizukuri','haichi','yohaichi','hojo','seisan'];
   function switchView(name){
     VIEW_NAMES.forEach(function(v){
       var view = document.getElementById('view-'+v);
@@ -911,6 +948,7 @@
       if(tab)  tab.classList.toggle('active', v===name);
     });
     if(name==='haichi'){ ensureFullFrame(); haichiRefitFrame_(); }
+    if(name==='yohaichi'){ planOnOpen(); planRefitFrame_(); }   // 🔮 配置図（予測）
     if(name==='hojo')   hojoOnOpen();
     if(name==='seisan' && typeof seisanOnOpen==='function') seisanOnOpen();
     fitBoard();   // ⑦ ビューが変わると高さが変わるので1画面に合わせ直す
@@ -919,6 +957,21 @@
   // レイアウトが未確定で小さく描かれることがあるので、少し遅らせて数回リフィットを促す。
   function haichiRefitFrame_(){
     var f = document.getElementById('layout-full-frame');
+    [60, 250, 600].forEach(function(ms){
+      setTimeout(function(){
+        try{
+          if(f && f.contentWindow){
+            if(typeof f.contentWindow.fitBoardPhoto === 'function') f.contentWindow.fitBoardPhoto();
+            else f.contentWindow.dispatchEvent(new Event('resize'));
+          }
+        }catch(e){}
+      }, ms);
+    });
+  }
+
+  // 🔮 予測タブの iframe も同じく、表示直後に中身を合わせ直す
+  function planRefitFrame_(){
+    var f = document.getElementById('layout-plan-frame');
     [60, 250, 600].forEach(function(ms){
       setTimeout(function(){
         try{
@@ -962,7 +1015,7 @@
       //   （配置図は高さフィットで縮むと本日荷造りと大きさが変わってしまうため、同じ幅フィット＋スクロールに統一）
       // それ以外のタブ（電子黒板ダッシュボード等）は従来どおり幅・高さ両方に1画面フィット。
       var active = document.querySelector('.view.active');
-      var scrollMode = !!(active && (active.id === 'view-nizukuri' || active.id === 'view-haichi'));
+      var scrollMode = !!(active && (active.id === 'view-nizukuri' || active.id === 'view-haichi' || active.id === 'view-yohaichi'));
       b.style.transform = 'translateX(-50%)'; b.style.top = '0px';   // 一旦等倍にして自然サイズを測る
       var bw = b.offsetWidth, bh = b.offsetHeight;
       var availW = window.innerWidth, availH = window.innerHeight, pad = 10;
@@ -983,8 +1036,9 @@
         spacer.style.height = '0px';
       }
       // 配置図が開いているときは iframe 内の board-photo も合わせ直す（小さく描かれたまま固まるのを自己修復）
-      if(active && active.id === 'view-haichi'){
-        var hf = document.getElementById('layout-full-frame');
+      if(active && (active.id === 'view-haichi' || active.id === 'view-yohaichi')){
+        var hfid = (active.id === 'view-haichi') ? 'layout-full-frame' : 'layout-plan-frame';
+        var hf = document.getElementById(hfid);
         try{ if(hf && hf.contentWindow && typeof hf.contentWindow.fitBoardPhoto==='function') hf.contentWindow.fitBoardPhoto(); }catch(e){}
       }
     });
@@ -1401,13 +1455,13 @@
      ・変更時：NZS更新＋localStorage控え＋クラウドへ“変更分だけ”送信（デバウンス）。
      ・5分ごとに再取得して他PCの変更も反映（未送信の変更があるときは取りに行かない）。 */
   // day＝黒板の当日限り値も全PC共有（数量変更/午前区切り/真空ピロートグル/終了目標時刻）
-  var NZS = { status:{}, prod:{}, prevOvr:{}, day:{ targetOvr:{}, amSnap:{}, offZones:{}, absent:{}, busy:{} } };
+  var NZS = { status:{}, prod:{}, prevOvr:{}, day:{ targetOvr:{}, amSnap:{}, offZones:{}, absent:{}, busy:{}, plan:{} } };
   var _nzsLoaded = false;      // クラウド初回読み込みが済んだか
   var _nzsDirty  = false;      // このPCで変更したがまだ送れていない
   var _nzsSaving = false;      // 送信中
   var _nzsTimer  = null;       // デバウンス用
-  var _nzsPatch  = { status:{}, prod:{}, prevOvr:{}, day:{ targetOvr:{}, amSnap:{}, offZones:{}, absent:{}, busy:{} } };   // 未送信の変更分（貯めて一括送信）
-  function nzPatchInit_(){ return { status:{}, prod:{}, prevOvr:{}, day:{ targetOvr:{}, amSnap:{}, offZones:{}, absent:{}, busy:{} } }; }
+  var _nzsPatch  = { status:{}, prod:{}, prevOvr:{}, day:{ targetOvr:{}, amSnap:{}, offZones:{}, absent:{}, busy:{}, plan:{} } };   // 未送信の変更分（貯めて一括送信）
+  function nzPatchInit_(){ return { status:{}, prod:{}, prevOvr:{}, day:{ targetOvr:{}, amSnap:{}, offZones:{}, absent:{}, busy:{}, plan:{} } }; }
 
   function nzRowKey(o){ return o._id || (o.date + '|' + o.cust + '|' + (o.bunrui||'') + '|' + (o.nyusu||0)); }
   function nzTodayStr(){ var t = new Date(); return t.getFullYear() + '/' + (t.getMonth()+1) + '/' + t.getDate(); }
@@ -1444,7 +1498,7 @@
   function nzDayEnsure_(){
     NZS.day = NZS.day || {};
     _nzsPatch.day = _nzsPatch.day || {};
-    ['targetOvr','amSnap','offZones','absent','busy'].forEach(function(k){
+    ['targetOvr','amSnap','offZones','absent','busy','plan'].forEach(function(k){
       NZS.day[k] = NZS.day[k] || {};
       _nzsPatch.day[k] = _nzsPatch.day[k] || {};   // 後から増えたセクションでも必ず器を用意する
     });
@@ -1461,7 +1515,7 @@
   }
   function nzDayHasLocal_(){ nzDayEnsure_(); var d=nzDayKey_(); return (NZS.day.targetOvr[d]!=null) || !!NZS.day.amSnap[d] || !!NZS.day.offZones[d] || !!NZS.day.absent[d] || !!(NZS.day.busy && Object.keys(NZS.day.busy).length) || (NZS.day.helpEnd!=null && NZS.day.helpEnd!==''); }
   // クラウド空のときに送る種（現在の NZS.day を丸ごと）
-  function nzDaySeed_(){ nzDayEnsure_(); var s={ targetOvr:Object.assign({},NZS.day.targetOvr), amSnap:JSON.parse(JSON.stringify(NZS.day.amSnap)), offZones:JSON.parse(JSON.stringify(NZS.day.offZones)), absent:JSON.parse(JSON.stringify(NZS.day.absent||{})), busy:JSON.parse(JSON.stringify(NZS.day.busy||{})) }; if(NZS.day.helpEnd!=null && NZS.day.helpEnd!=='') s.helpEnd=NZS.day.helpEnd; return s; }
+  function nzDaySeed_(){ nzDayEnsure_(); var s={ targetOvr:Object.assign({},NZS.day.targetOvr), amSnap:JSON.parse(JSON.stringify(NZS.day.amSnap)), offZones:JSON.parse(JSON.stringify(NZS.day.offZones)), absent:JSON.parse(JSON.stringify(NZS.day.absent||{})), busy:JSON.parse(JSON.stringify(NZS.day.busy||{})), plan:JSON.parse(JSON.stringify(NZS.day.plan||{})) }; if(NZS.day.helpEnd!=null && NZS.day.helpEnd!=='') s.helpEnd=NZS.day.helpEnd; return s; }
   // ---- 書き込み（NZS.day更新＋パッチ＋クラウド送信予約）----
   function nzDaySetTargetOvr_(v){ nzDayEnsure_(); var d=nzDayKey_(); if(v==null){ delete NZS.day.targetOvr[d]; _nzsPatch.day.targetOvr[d]=null; } else { NZS.day.targetOvr[d]=Number(v)||0; _nzsPatch.day.targetOvr[d]=Number(v)||0; } nzStateScheduleSave(); }
   function nzDaySyncAmSnap_(funes,kg,at,cs,all){ nzDayEnsure_(); var d=nzDayKey_(); var snap={funes:funes,kg:kg,at:at,cs:Number(cs)||0,all:(all!=null?Number(all):(Number(kg)||0)+(Number(cs)||0))}; NZS.day.amSnap[d]=snap; _nzsPatch.day.amSnap[d]=snap; nzStateScheduleSave(); }
@@ -1472,6 +1526,14 @@
   function nzDayAbsentNow_(){ nzDayEnsure_(); return NZS.day.absent[nzDayKey_()] || {}; }
   // ⑧ 繁忙期（7月/11月 第1週）の「全資材 再確認」を実施した記録。キー「YYYY-07」→ {by,at}
   function nzDaySetBusy_(key, rec){ nzDayEnsure_(); NZS.day.busy[key]=rec; _nzsPatch.day.busy[key]=rec; try{ localStorage.setItem('busy_check', JSON.stringify(NZS.day.busy)); }catch(e){} nzStateScheduleSave(); }
+  // 🔮 配置図（予測）：その日の予測（配置・出勤チェック・工程オフ）を日付キーで全PC共有。
+  //    キー「YYYY-MM-DD」→ { layout:{AM,PM}, absent:{氏名:true}, off:{ゾーンid:true} }。当日ぶん（absent/offZones）とは別物。
+  function nzDaySetPlan_(dateStr, rec){
+    nzDayEnsure_(); if(!dateStr) return;
+    NZS.day.plan[dateStr] = rec || {};
+    _nzsPatch.day.plan[dateStr] = rec || {};
+    nzStateScheduleSave();
+  }
   // ---- クラウド→UI 反映（未送信の変更が無いときだけ呼ばれる：呼び出し側でガード）----
   function nzApplyDayFromCloud_(){
     var day = NZS.day || {}; var dk = nzDayKey_();
@@ -1508,6 +1570,11 @@
       centerLive.absent = ab;
       try{ localStorage.setItem('haichi_absent_'+dk, JSON.stringify(ab)); }catch(e){}
       var fa=document.getElementById('layout-full-frame'); if(fa&&fa.contentWindow){ try{ fa.contentWindow.postMessage({type:'centerSetAbsent', absent:ab},'*'); }catch(e){} }
+    }
+    // ⑦ 🔮 配置図（予測）：他PCで変えた予測を、いま表示している日付なら画面へ反映
+    if(day.plan && typeof planPush==='function' && typeof planState==='object' && planState.date && day.plan[planState.date]){
+      try{ localStorage.setItem('haichi_plan_'+planState.date, JSON.stringify(day.plan[planState.date])); }catch(e){}
+      planPush();
     }
     // ⑥ ⑧ 繁忙期の再確認記録 → 上部アラート帯を出し分け
     if(day.busy){ try{ localStorage.setItem('busy_check', JSON.stringify(day.busy)); }catch(e){} if(typeof refreshAlertBar==='function') refreshAlertBar(); }
@@ -1570,7 +1637,7 @@
   }
 
   // ---- クラウド同期（保存はfetch POST・取得はJSONP。※httpsなのでfetchが使える）----
-  function nzDayPatchEmpty_(){ var dp=_nzsPatch.day||{}; return ['targetOvr','amSnap','offZones','absent','busy'].every(function(k){ return !Object.keys(dp[k]||{}).length; }) && !('helpEnd' in dp); }
+  function nzDayPatchEmpty_(){ var dp=_nzsPatch.day||{}; return ['targetOvr','amSnap','offZones','absent','busy','plan'].every(function(k){ return !Object.keys(dp[k]||{}).length; }) && !('helpEnd' in dp); }
   function nzPatchEmpty_(){ return !Object.keys(_nzsPatch.status).length && !Object.keys(_nzsPatch.prod).length && !Object.keys(_nzsPatch.prevOvr).length && nzDayPatchEmpty_(); }
   function nzStateScheduleSave(){
     if(!CENTER_ENDPOINT) return;      // 未接続ならローカル控えのみ
@@ -1603,7 +1670,7 @@
     // day（当日限り値）も未送信バッファへ戻す（既存の新しい変更は上書きしない）
     if(p.day){
       _nzsPatch.day = _nzsPatch.day || { targetOvr:{}, amSnap:{}, offZones:{} };
-      ['targetOvr','amSnap','offZones','absent','busy'].forEach(function(sec){
+      ['targetOvr','amSnap','offZones','absent','busy','plan'].forEach(function(sec){
         Object.keys(p.day[sec]||{}).forEach(function(k){ _nzsPatch.day[sec] = _nzsPatch.day[sec]||{}; if(!(k in _nzsPatch.day[sec])) _nzsPatch.day[sec][k] = p.day[sec][k]; });
       });
       if(('helpEnd' in p.day) && !('helpEnd' in _nzsPatch.day)) _nzsPatch.day.helpEnd = p.day.helpEnd;
@@ -2158,14 +2225,16 @@
     if(typeof haichiImgOnChange_==='function') haichiImgOnChange_();   // ① 工程オン/オフの変更でも自動保存
   }
   window.addEventListener('DOMContentLoaded', haichiUpdateZoneToggleUI);
-  function haichiFetchOne(type, cb){
+  function haichiFetchOne(type, cb, extra){
     if(!CENTER_ENDPOINT){ cb(null); return; }
     var cbName = 'hcCb_' + type + '_' + Date.now();
     var s = document.createElement('script');
     var done = false;
     var timer = setTimeout(function(){ if(!done){ done=true; cb(null); try{delete window[cbName];}catch(e){} s.remove(); } }, 20000);
     window[cbName] = function(data){ done=true; clearTimeout(timer); cb(data); try{delete window[cbName];}catch(e){} s.remove(); };
-    s.src = CENTER_ENDPOINT + (CENTER_ENDPOINT.indexOf('?')>=0?'&':'?') + 'type=' + type + '&callback=' + cbName;
+    var q = '';   // 🔮 予測タブのように日付などを渡したいときは extra={date:'YYYY-MM-DD'} を付ける
+    if(extra){ Object.keys(extra).forEach(function(k){ if(extra[k]!=null && extra[k]!=='') q += '&' + k + '=' + encodeURIComponent(extra[k]); }); }
+    s.src = CENTER_ENDPOINT + (CENTER_ENDPOINT.indexOf('?')>=0?'&':'?') + 'type=' + type + '&callback=' + cbName + q;
     s.onerror = function(){ if(!done){ done=true; clearTimeout(timer); cb(null); try{delete window[cbName];}catch(e){} s.remove(); } };
     document.head.appendChild(s);
   }
@@ -2179,6 +2248,130 @@
     if(!CENTER_ENDPOINT) return;
     haichiFetchOne('haichi', function(d){ if(d && !d.error){ centerLive.haichi = d; centerLive.prio = d.prio || {}; haichiPushToFrames(); } });  // 優先番号は「配置優先」シートから（クラウドcfgではなくシートが基準）
     haichiFetchOne('shift',  function(d){ if(d && !d.error){ centerLive.shift  = d; updateStaffCell(); haichiPushToFrames(); } });
+  }
+
+  /* ===== 🔮 配置図（予測）タブ =====
+     明日以降の日付を選ぶと、その日のシフト（予定）を GAS（?type=shift&date=…）から取り、
+     配置図ツールを ?mode=plan で開いた iframe に渡して自動配置＝「その日の配置」を先に見せる。
+     ・当日の配置図（layout-full-frame）とはデータを完全に分ける。
+       保存先＝「本日荷造り状態」blob の day.plan['YYYY-MM-DD'] = { layout:{AM,PM}, absent:{}, off:{} }
+       ＝誰かが人を動かせば全PC（液晶）で同じ予測が見られる。当日の配置・実績には一切影響しない。
+     ・力量表／配置優先／ゾーン設定（枠数）は当日と共通＝同じ人・同じ枠で予測する。
+     ・対象は「明日以降」だけ（今日の配置は「配置図」タブ）。 */
+  var planState = { date:'', shift:null, started:false, seq:0 };
+  function planFrame_(){ return document.getElementById('layout-plan-frame'); }
+  function planDateStr_(d){ return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2); }
+  function planParseDate_(s){ var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s||'')); return m ? new Date(Number(m[1]), Number(m[2])-1, Number(m[3])) : null; }
+  function planTomorrow_(){ var d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()+1); return d; }
+  function planFmtJp_(s){ var d = planParseDate_(s); if(!d) return ''; var W = '日月火水木金土'; return (d.getMonth()+1) + '月' + d.getDate() + '日（' + W.charAt(d.getDay()) + '）'; }
+  function planStatus_(txt, color){ var e = document.getElementById('plan-status'); if(e){ e.textContent = txt || ''; e.style.color = color || 'var(--muted)'; } }
+  // その日の予測（配置・出勤チェック・工程オフ）：クラウド（全PC共有）が正、無ければこのPCの控え
+  function planLocalKey_(dt){ return 'haichi_plan_' + dt; }
+  function planRecord_(dt){
+    var rec = null;
+    try{ if(NZS && NZS.day && NZS.day.plan) rec = NZS.day.plan[dt] || null; }catch(e){}
+    if(!rec){ try{ rec = JSON.parse(localStorage.getItem(planLocalKey_(dt)) || 'null'); }catch(e){ rec = null; } }
+    return rec || {};
+  }
+  function planRecordSave_(dt, rec){
+    try{ localStorage.setItem(planLocalKey_(dt), JSON.stringify(rec)); }catch(e){}
+    if(typeof nzDaySetPlan_ === 'function') nzDaySetPlan_(dt, rec);   // ★ 全PC共有（クラウド）へ
+  }
+  function planPush(){
+    var f = planFrame_(); if(!f || !f.contentWindow || !planState.date) return;
+    var rec = planRecord_(planState.date);
+    var sh  = planState.shift;
+    try{
+      f.contentWindow.postMessage({ type:'centerLiveData', payload:{
+        planDate: planState.date,
+        haichi:   centerLive.haichi,
+        shift:    sh,
+        zoneCfg:  centerLive.zoneCfg,
+        prio:     centerLive.prio,
+        layout:   rec.layout || null,
+        absent:   rec.absent || {},
+        offZones: rec.off || {},
+        noone:    !!(sh && sh.present && sh.present.length === 0)   // 会社休み等＝全員未出勤で空の配置図にする
+      }}, '*');
+    }catch(e){}
+  }
+  function planSetDate(dt, opts){
+    opts = opts || {};
+    if(!dt) return;
+    planState.date  = dt;
+    planState.shift = null;
+    var inp = document.getElementById('plan-date'); if(inp && inp.value !== dt) inp.value = dt;
+    var lb  = document.getElementById('plan-label'); if(lb) lb.textContent = planFmtJp_(dt);
+    planStatus_('シフトを読み込み中…');
+    planPush();                       // 先に日付だけ渡して帯を切り替える（シフトは届き次第もう一度push）
+    var my = ++planState.seq;
+    if(!CENTER_ENDPOINT){ planStatus_('連携（GAS）が未設定です', 'var(--red)'); return; }
+    haichiFetchOne('shift', function(d){
+      if(my !== planState.seq) return;                    // 続けて日付を変えたときは古い応答を捨てる
+      if(!d || d.error){
+        planStatus_((d && d.error) ? ('シフトを取得できません：' + d.error) : 'シフトを取得できませんでした（通信・またはGASが未更新）', 'var(--red)');
+        return;
+      }
+      // GASが古い（date に対応していない版）と今日のシフトが返る＝予測にならないので、はっきり出す
+      if(d.date && d.date !== dt){
+        planState.shift = null;
+        planStatus_('GAS（センター連携）が未更新です：' + d.date + ' のシフトが返りました。再デプロイしてください', 'var(--red)');
+        planPush();
+        return;
+      }
+      planState.shift = d;
+      var n = (d.present || []).length;
+      if(!n){
+        if(opts.autoSkip && (opts.tries|0) > 0){          // 「次のシフト日」＝出勤者がいる最初の日まで進める
+          var nx = planParseDate_(dt); nx.setDate(nx.getDate() + 1);
+          planSetDate(planDateStr_(nx), { autoSkip:true, tries:(opts.tries|0) - 1 });
+          return;
+        }
+        planStatus_('この日は出勤の予定がありません（会社休み？）', 'var(--red)');
+      } else {
+        planStatus_('シフト取得OK：出勤 ' + n + ' 名' + (d.sheet ? '（' + d.sheet + '）' : ''), 'var(--green)');
+      }
+      planPush();
+    }, { date: dt });
+  }
+  function planOnPick(){
+    var inp = document.getElementById('plan-date'); if(!inp) return;
+    var d = planParseDate_(inp.value); if(!d) return;
+    var tm = planTomorrow_();
+    if(d < tm){ d = tm; planStatus_('予測は明日以降の日付を選んでください', 'var(--red)'); }
+    planSetDate(planDateStr_(d), {});
+  }
+  function planShiftDays(n){
+    var base = planParseDate_(planState.date) || planTomorrow_();
+    base.setDate(base.getDate() + n);
+    var tm = planTomorrow_(); if(base < tm) base = tm;   // 今日より前には戻さない（予測は明日から）
+    planSetDate(planDateStr_(base), {});
+  }
+  function planGoNextShift(){ planSetDate(planDateStr_(planTomorrow_()), { autoSkip:true, tries:10 }); }
+  function planOnOpen(){
+    var f = planFrame_();
+    if(f && !f.getAttribute('src')) f.setAttribute('src', 'haichi.html?mode=plan');   // 初めて開いたときだけ読み込む
+    var inp = document.getElementById('plan-date');
+    if(inp){
+      inp.min = planDateStr_(planTomorrow_());
+      var mx = planTomorrow_(); mx.setDate(mx.getDate() + 90); inp.max = planDateStr_(mx);
+    }
+    if(!planState.started){ planState.started = true; planGoNextShift(); }   // 初回＝明日から順に、出勤者がいる最初の日
+    else planPush();
+  }
+  // 予測フレームからの通知は当日ぶんと混ぜず day.plan[対象日] へ保存する（当日の配置・実績には触らない）
+  function planOnFrameMessage_(d, src){
+    if(d.type === 'centerReady'){ planPush(); return; }
+    var dt = d.planDate || planState.date;
+    if(!dt || dt !== planState.date) return;              // 日付を変えた直後に届く古い通知は捨てる
+    var rec = planRecord_(dt);
+    if(d.type === 'centerLayout'){    rec.layout = d.layout || null; planRecordSave_(dt, rec); return; }
+    if(d.type === 'centerAbsent'){    rec.absent = d.absent || {};   planRecordSave_(dt, rec); return; }
+    if(d.type === 'centerOffZones'){  rec.off    = d.off    || {};   planRecordSave_(dt, rec); return; }
+    if(d.type === 'centerHaichiResult'){ return; }        // ★ 当日の終了目標・ヘルプ人数は動かさない
+    if(d.type === 'centerSaveImage'){    haichiSaveImage(d.dataUrl, src, dt); return; }   // ファイル名は予測日で保存
+    if(d.type === 'centerSavePosition'){ haichiSavePosition(d.ampm, d.rows, src); return; }
+    // ゾーン設定・配置優先は全日共通の恒久設定＝予測画面からは変えない（予測フレームではタブ自体を隠している）
   }
 
   /* ===== ① 配置図の設定（ゾーン設定・優先番号・手動配置）を全PCで共有（クラウド保存） =====
@@ -2273,12 +2466,12 @@
     document.head.appendChild(s);
   }
   // ⑤ 配置図から「画像で保存」要求（dataURL）が来たら、GASへPOSTしてGoogleドライブに保存
-  function haichiSaveImage(dataUrl, replyWin){
+  function haichiSaveImage(dataUrl, replyWin, dateStr){   // dateStr＝🔮予測の日（省略＝今日）。ファイル名「日付_時間.png」に効く
     var reply=function(o){ if(replyWin){ try{ replyWin.postMessage(Object.assign({type:'centerSaveImageResult'},o),'*'); }catch(e){} } };
     if(!CENTER_ENDPOINT){ reply({ok:false, error:'endpoint未設定'}); return; }
     if(!dataUrl){ reply({ok:false, error:'画像データがありません'}); return; }
     fetch(CENTER_ENDPOINT, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({ action:'savePositionImg', img:dataUrl })})
+      body: JSON.stringify({ action:'savePositionImg', img:dataUrl, date:(dateStr||'') })})
       .then(function(r){ return r.json(); })
       .then(function(d){ reply({ ok:!!(d&&d.ok), name:(d&&d.name)||'', url:(d&&d.url)||'', folderUrl:(d&&d.folderUrl)||'', error:(d&&d.error)||'' }); })
       .catch(function(err){ reply({ ok:false, error:String(err) }); });
@@ -2622,6 +2815,8 @@
   function haichiLoadSummary(){ if(CENTER_ENDPOINT) haichiFetchOne('summary', function(d){ if(d && !d.error) haichiUpdateBoard(d); }); }
   window.addEventListener('message', function(e){
     var d = e.data; if(!d) return;
+    // 🔮 予測フレーム（配置図（予測）タブ）からの通知は、当日ぶんと混ぜず専用の処理へ回す
+    if(d.mode === 'plan'){ if(typeof planOnFrameMessage_==='function') planOnFrameMessage_(d, e.source); return; }
     if(d.type === 'centerReady'){
       // 準備できたフレームには今持っているデータ（部分的でも）を渡す。以後の更新はpushで届く。
       try{ e.source.postMessage({type:'centerLiveData', payload:centerLive}, '*'); }catch(err){}

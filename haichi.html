@@ -64,6 +64,9 @@
   /* ② ロック中はボード全体を薄い赤枠で示し、うっかり操作しても崩れないことを見せる */
   body.haichi-locked .board-photo{ box-shadow:0 0 0 3px rgba(208,59,59,.35); border-radius:8px; }
   /* ① 配置図を3カラム（左＝工程/時間帯・中央＝配置図・右＝操作）に。板が大きくなりすぎないよう中央を制限。 */
+  /* 🔮 予測モード（電子黒板の「配置図（予測）」タブ）の帯 */
+  .plan-banner{ background:#eef4ff; border:2px solid #9dbcf0; border-left:8px solid #184f95; border-radius:10px; padding:10px 14px; margin-bottom:10px; font-size:16px; font-weight:800; color:#123a70; }
+  .plan-banner .pb-note{ display:block; margin-top:3px; font-size:12px; font-weight:700; color:#4a6a99; line-height:1.6; }
   .haichi-3col{ display:grid; grid-template-columns:210px minmax(0,1fr) 190px; gap:14px; align-items:start; margin-bottom:8px; }
   .haichi-3col .hc-left, .haichi-3col .hc-right{ display:flex; flex-direction:column; gap:10px; }
   .haichi-3col .hc-left .zone-off-panel{ flex-direction:column; align-items:stretch; gap:10px; margin-bottom:0; }
@@ -169,6 +172,8 @@
 
 <!-- ==================== 配置図タブ ==================== -->
 <div class="panel active" id="panel-haichi">
+  <!-- 🔮 予測モード（?mode=plan）のときだけ出る帯。対象日と注意書きを表示する。 -->
+  <div class="plan-banner" id="plan-banner" style="display:none;"></div>
   <div class="note">
     現場の11工程（流し・はつり・仕分け・仕分け補助・箱入れ・ピロー投入・ピロー箱入れ・真空投入・真空箱入れ・パレット・箱織／左上＝ビス置き場＝未配置置き場）を配置しています。空き枠の赤丸をタップすると、その場所に人を配置できます。名前の丸をタップすると移動・入替ができます。位置・人数の枠は仮です（ゾーン設定で調整可）。違っていたら教えてください。
   </div>
@@ -393,7 +398,57 @@ function rawCapacityOf(z){ return (typeof z._capacity === 'number') ? z._capacit
 var TOOL_LS_OK = false; try{ if(window.localStorage){ window.localStorage.getItem('_haichi_probe'); TOOL_LS_OK = true; } }catch(_e){ TOOL_LS_OK = false; }
 function lsGet_(k){ if(!TOOL_LS_OK) return null; try{ var v = window.localStorage.getItem(k); return v ? JSON.parse(v) : null; }catch(_e){ return null; } }
 function lsSet_(k,v){ if(!TOOL_LS_OK) return; try{ window.localStorage.setItem(k, JSON.stringify(v)); }catch(_e){} }
-function toolDateKey_(){ var d = new Date(); return d.getFullYear()+'/'+(d.getMonth()+1)+'/'+d.getDate(); }
+/* ===== 🔮 予測モード（電子黒板の「配置図（予測）」タブ）=====
+   予測タブは この haichi.html を ?mode=plan で開く。対象日（明日以降）は親（電子黒板）から
+   centerLiveData の planDate（YYYY-MM-DD）で届く。当日ぶんの控え（ロック・出勤チェック・工程オフ・
+   配置）と混ざらないよう、保存キーと親へ送る通知に mode/planDate を必ず付ける。
+   ＝既定（当日モード）の動きはこれまでと一切変わらない。 */
+var HAICHI_MODE = 'today', PLAN_DATE = '';
+try{ if(/[?&]mode=plan(&|$)/.test(location.search)) HAICHI_MODE = 'plan'; }catch(_e){}
+var IS_PLAN = (HAICHI_MODE === 'plan');
+function planDateObj_(){
+  if(IS_PLAN && /^\d{4}-\d{2}-\d{2}$/.test(PLAN_DATE)){
+    var p = PLAN_DATE.split('-');
+    return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  }
+  return new Date();
+}
+// 親（電子黒板）へ送るメッセージには必ずモードと対象日を添える＝親が当日ぶんと予測ぶんを取り違えない
+function postParent_(msg){
+  try{
+    if(window.parent && window.parent !== window){
+      msg.mode = HAICHI_MODE; msg.planDate = PLAN_DATE;
+      window.parent.postMessage(msg, '*');
+    }
+  }catch(_e){}
+}
+// 当日は今日、予測は対象日でキーを分ける（ロック・工程オフの控え用）
+function toolDateKey_(){ var d = planDateObj_(); return (IS_PLAN ? 'plan/' : '') + d.getFullYear()+'/'+(d.getMonth()+1)+'/'+d.getDate(); }
+// 🔮 予測モード：帯に対象日を出す（当日モードでは何もしない）
+function planUpdateHeader_(){
+  if(!IS_PLAN) return;
+  var el = document.getElementById('plan-banner'); if(!el) return;
+  var has = /^\d{4}-\d{2}-\d{2}$/.test(PLAN_DATE);
+  var d = planDateObj_(), W = '日月火水木金土';
+  el.style.display = '';
+  el.innerHTML = has
+    ? ('🔮 <b>' + d.getFullYear() + '年' + (d.getMonth()+1) + '月' + d.getDate() + '日（' + W.charAt(d.getDay()) + '）</b> の配置（予測）'
+       + '<span class="pb-note">シフト表の予定から自動で配置しています。人を動かすとこの日ぶんとして保存され、全PC（液晶）で同じ予測が見られます。当日の配置図には影響しません。</span>')
+    : ('🔮 配置（予測）<span class="pb-note">上の日付を選ぶと、その日のシフトから予測の配置を表示します。</span>');
+}
+window.addEventListener('DOMContentLoaded', function(){
+  if(!IS_PLAN) return;
+  try{
+    document.body.classList.add('plan-mode');
+    var h1 = document.querySelector('header h1'); if(h1) h1.textContent = '㈱カワカミ蓮根　センター配置図（予測）';
+    var hp = document.querySelector('header p'); if(hp) hp.textContent = '明日以降のシフト（予定）から、その日の配置を先に見られます。当日の配置図とは別に保存されます。';
+    var zt = document.querySelector('#zone-off-panel .zop-ttl'); if(zt) zt.textContent = 'この日の工程';
+    var ln = document.getElementById('lock-note'); if(ln) ln.textContent = '予測が決まったら「確認」でロック';
+    // ゾーン設定（枠数・ゾーン優先度）は全日共通の恒久設定なので、予測画面からは触らせない
+    var zs = document.querySelector('.tab-btn[data-tab="settei"]'); if(zs) zs.style.display = 'none';
+  }catch(_e){}
+  planUpdateHeader_();
+});
 
 /* ② 確認（ロック）：配置が決まったら「確認」でロック。ロック中は午前/午後の切替・画像保存だけ可、
    配置の変更（人の移動・入替・自動配置・工程トグル）は不可。もう一度押すと編集に戻る。
@@ -511,7 +566,7 @@ function toggleOffGroup_(gid, on){
   try{ autoAssign('pattern'); }catch(e){}
   try{ if(typeof saveLayout === 'function') saveLayout(); }catch(e){}
   postCenterResult_();
-  try{ if(window.parent && window.parent !== window) window.parent.postMessage({ type:'centerOffZones', off: offZones }, '*'); }catch(e){}
+  postParent_({ type:'centerOffZones', off: offZones });
 }
 
 function renderPool(){
@@ -672,7 +727,7 @@ function applySlotAttend_(){
    → 外した人を _absentOvr（氏名ベース）に控え、シフト反映の“後”に必ず欠勤へ落とす。
    　 当日限り（日付キー）。電子黒板経由でクラウド共有＝全PCの液晶で同じ状態になる。 */
 var _absentOvr = {};                        // { 正規化氏名: true }
-function absentKey_(){ var t=new Date(); return 'haichi_absent_' + t.getFullYear() + '-' + (t.getMonth()+1) + '-' + t.getDate(); }
+function absentKey_(){ var t=planDateObj_(); return (IS_PLAN ? 'haichi_plan_absent_' : 'haichi_absent_') + t.getFullYear() + '-' + (t.getMonth()+1) + '-' + t.getDate(); }
 function absentLoadLocal_(){ try{ var v=JSON.parse(localStorage.getItem(absentKey_())); if(v && typeof v==='object') _absentOvr = absentNormMap_(v); }catch(e){} }
 function absentNormMap_(map){
   var out = {};
@@ -698,7 +753,7 @@ function applyAbsentOverride_(){
 function postAbsentToParent_(){
   try{
     if(window.parent && window.parent !== window){
-      window.parent.postMessage({ type:'centerAbsent', absent:_absentOvr }, '*');
+      postParent_({ type:'centerAbsent', absent:_absentOvr });
     }
   }catch(_e){}
 }
@@ -964,7 +1019,7 @@ function saveZoneCfg_(){
   // ← capacityOf(z) だと「真空なし」トグル中は0が保存され、あり時も0枠に固定されてしまう。設定上の枠数（rawCapacityOf）を保存する。
   ZONES.forEach(function(z){ cfg[z.id] = { capacity: rawCapacityOf(z), priority: z.priority }; });
   lsSet_('haichi_tool_zonecfg', cfg);   // 単体で開いたとき用（埋め込み時はno-op）
-  try{ if(window.parent && window.parent !== window) window.parent.postMessage({ type:'centerZoneCfg', cfg: cfg }, '*'); }catch(_e){}
+  postParent_({ type:'centerZoneCfg', cfg: cfg });
 }
 // ===== 配置優先（力量表のマスの数字/×）の保存/復元 =====
 // prio は workerId×skill だが、保存は氏名ベース（開き直すと id が変わるため）。空欄は保存しない。
@@ -976,7 +1031,7 @@ function currentPrioByName(){
 function savePrio(){
   var pr = currentPrioByName();
   lsSet_('haichi_tool_prio', pr);   // 単体で開いたとき用（埋め込み時はno-op）
-  try{ if(window.parent && window.parent !== window) window.parent.postMessage({ type:'centerPrio', prio: pr }, '*'); }catch(e){}
+  postParent_({ type:'centerPrio', prio: pr });
 }
 // 保存済み(氏名→{skill:値})を現在の workers に反映（無いマスは力量ベースの初期値のまま）
 function applyPrioByName_(saved){
@@ -1004,7 +1059,7 @@ function saveLayout(){
   _slotLayouts[CUR_SLOT] = currentLayoutByName();   // ② 今の時間帯（午前/午後）の配置を控える
   if(!(window.parent && window.parent !== window)) return;
   // 午前・午後の両方をまとめて親（電子黒板）へ保存＝更新・開き直し・他PCでも各時間帯の配置が残る
-  try{ window.parent.postMessage({ type:'centerLayout', layout: { __ampm:true, AM:_slotLayouts.AM, PM:_slotLayouts.PM } }, '*'); }catch(e){}
+  postParent_({ type:'centerLayout', layout: { __ampm:true, AM:_slotLayouts.AM, PM:_slotLayouts.PM } });
 }
 // 保存された配置（氏名ベース）を、出勤者だけ・保存順で復元（欠勤/不在名は無視）
 function applyLayoutByName(layout){
@@ -1018,6 +1073,17 @@ function applyLayoutByName(layout){
 }
 function applyLiveData(payload){
   try{
+    // 🔮 予測モード：対象日が変わったら、その日ぶんの控え（ロック・出勤チェック）に切り替え、前の日の配置は捨てる
+    if(IS_PLAN){
+      var _pd = String((payload && payload.planDate) || '');
+      if(_pd !== PLAN_DATE){
+        PLAN_DATE = _pd;
+        _slotLayouts = { AM:null, PM:null };
+        _absentOvr = {}; absentLoadLocal_();
+        HAICHI_LOCKED = !!lsGet_(haichiLockKey_()); haichiApplyLockUI_();
+      }
+      planUpdateHeader_();
+    }
     var haichi = payload && payload.haichi;
     var shift  = payload && payload.shift;
     applyZoneCfg_(payload && payload.zoneCfg);   // 保存済みのゾーン設定（枠数・優先度）を先に反映
@@ -1052,6 +1118,9 @@ function applyLiveData(payload){
       var anyMatch = workers.some(isOn);
       if(anyMatch){ workers.forEach(function(w){ w.attend = isOn(w); }); }
     }
+    // 🔮 予測モード：その日の出勤者が1人もいない（会社休み等）ときは、全員を未出勤にして空の配置図を出す。
+    //    （shift.present が空配列だと上の判定を素通りして全員出勤に見えてしまうため、親が noone を立てて知らせる）
+    if(payload && payload.noone){ workers.forEach(function(w){ w.attend = false; }); }
     // ★ 応援（本日〇＝shift.support）：力量表に無いので、ここでフレッシュな作業者として追加する。
     //   スキル空＝新人扱い＝自動配置で基本「はつり（コンベア）」へ入る（村中/平田の隣）。力量表は汚さない。
     if(shift && Array.isArray(shift.support) && shift.support.length){
@@ -1113,12 +1182,14 @@ function applyLiveData(payload){
       if(window.parent && window.parent !== window){
         var zc = ZONES.map(function(z){ return { label:z.label, count:assignment[z.id].length }; });
         var attendN = workers.filter(function(w){ return w.attend; }).length;
-        window.parent.postMessage({ type:'centerHaichiResult', attend:attendN, zones:zc }, '*');
+        postParent_({ type:'centerHaichiResult', attend:attendN, zones:zc });
       }
     }catch(_e){}
     _restoringLayout = false;
     _liveReceived = true;
-    saveLayout();   // 復元/自動配置の結果を保存（次回の開き直し・更新でも維持）
+    // 予測モードは“開いて見ただけ”ではクラウドへ書かない（自動配置はどのPCでも同じ結果になる）。
+    // 人を動かした・工程を変えたときだけ saveLayout() が走り、その日ぶんとして全PCへ共有される。
+    if(!IS_PLAN) saveLayout();   // 復元/自動配置の結果を保存（次回の開き直し・更新でも維持）
   }catch(e){ _restoringLayout = false; /* 失敗時はサンプルのまま */ }
 }
 // 「この配置を履歴に保存」：今の配置（場所×氏名）をAM/PM付きで親（電子黒板）経由でGASへ保存
@@ -1133,7 +1204,7 @@ function savePositionHistory(){
   if(!rows.length){ if(st){ st.textContent = '配置がありません'; st.style.color = 'var(--muted)'; } return; }
   if(!(window.parent && window.parent !== window)){ if(st){ st.textContent = '電子黒板から開くと保存できます'; st.style.color = 'var(--muted)'; } return; }
   if(st){ st.textContent = '保存中…'; st.style.color = 'var(--text2)'; }
-  try{ window.parent.postMessage({ type:'centerSavePosition', ampm: ampm, rows: rows }, '*'); }catch(e){ if(st){ st.textContent = '保存に失敗'; st.style.color = 'var(--red)'; } }
+  try{ postParent_({ type:'centerSavePosition', ampm: ampm, rows: rows }); }catch(e){ if(st){ st.textContent = '保存に失敗'; st.style.color = 'var(--red)'; } }
 }
 // 親（電子黒板）へ現在の配置結果（出勤数・ゾーン別人数）を返す＝はつり人数/終了目標などの再計算用
 function postCenterResult_(){
@@ -1141,7 +1212,7 @@ function postCenterResult_(){
     if(window.parent && window.parent !== window){
       var zc = ZONES.map(function(z){ return { label:z.label, count:assignment[z.id].length }; });
       var an = workers.filter(function(w){ return w.attend; }).length;
-      window.parent.postMessage({ type:'centerHaichiResult', attend:an, zones:zc }, '*');
+      postParent_({ type:'centerHaichiResult', attend:an, zones:zc });
     }
   }catch(_e){}
 }
@@ -1264,7 +1335,7 @@ function saveBoardImage(){
     });
     var url = cv.toDataURL('image/png');
     if(st){ st.textContent = '保存中…'; st.style.color = 'var(--text2)'; }
-    window.parent.postMessage({ type:'centerSaveImage', dataUrl: url }, '*');
+    postParent_({ type:'centerSaveImage', dataUrl: url });
   }catch(err){
     if(st){ st.textContent = '画像化に失敗：' + (err && err.message || err); st.style.color = 'var(--red)'; }
   }
@@ -1352,7 +1423,7 @@ try{
   var _sa = document.getElementById('save-ampm'); if(_sa) _sa.value = CUR_SLOT;
   if(typeof paintSlotButtons_ === 'function') paintSlotButtons_();
 }catch(e){}
-try{ if(window.parent && window.parent !== window) window.parent.postMessage({type:'centerReady'}, '*'); }catch(e){}
+postParent_({type:'centerReady'});   // 親（電子黒板）へ「準備できました」＝当日/予測どちらのフレームかも一緒に伝える
 
 
 </script>
