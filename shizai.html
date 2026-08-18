@@ -322,6 +322,7 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
     <div class="field" style="flex:1;min-width:320px">
       <label>GAS エンドポイント URL（発注書連携・/exec）</label>
       <input id="gasUrl" placeholder="https://script.google.com/macros/s/.../exec" style="width:100%">
+      <div class="hint" id="gasUrlNote" style="margin-top:6px"></div>
     </div>
   </div>
   <div class="sec-title" style="margin-top:18px">🔗 ほかのPCと共有（リアルタイム同期）</div>
@@ -536,14 +537,33 @@ function defaultState(){
 function defaultGlove(){ return {on:true,perPerson:8,map:{},days:{},sizes:[],missing:[],fetchedAt:'',note:''}; }
 function todayStr(){const d=new Date();const p=n=>String(n).padStart(2,'0');
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());}
+// 電子黒板（index.html）と同じ「センター連携」GASの /exec。
+// URLが未設定のPCでは自動でこれを使う（2026-08-11にURL方式へ移した時、PCごとに入れ直しが要って連携が切れた対策）
+const GAS_URL_DEFAULT='https://script.google.com/macros/s/AKfycbyEzr6jVTWegzY7sChW-axgANWxn9rDcSJV5YPwzhegpUp5z6fh6-O0ISDMZ37LZ8Q/exec';
 function load(){ try{S=JSON.parse(localStorage.getItem(LS));}catch(e){} if(!S)S=defaultState();
   S.funes=S.funes||{};S.futureFunes=S.futureFunes||{};S.orders=S.orders||[];S.stocktakes=S.stocktakes||[];S.boms=S.boms||{};S.backups=S.backups||[];S.recounts=S.recounts||[];
   S.settings=Object.assign({safetyDays:30,scrapAlertPct:10,shareOn:false,deviceName:''},S.settings);
   S.cloud=Object.assign({rev:0,savedAt:'',savedBy:''},S.cloud);
   S.glove=Object.assign(defaultGlove(),S.glove||{});   // ① 手袋（シフト連動）
   S.busy=S.busy||{};                                   // ② 繁忙期の「全資材 再確認」記録（YYYY-MM → {by,at}）
+  if(!(S.settings.gasUrl||'').trim()) S.settings.gasUrl=GAS_URL_DEFAULT;   // 未設定なら既定のGASにつなぐ
   gloveAutoMap();
   migrateV3();
+}
+// 設定のGAS URLを、電子黒板と同じ既定のURLに戻す
+function resetGasUrl(){
+  S.settings.gasUrl=GAS_URL_DEFAULT;
+  const el=document.getElementById('gasUrl'); if(el)el.value=GAS_URL_DEFAULT;
+  save(); renderGasUrlNote(); recalcAll();
+  alert('既定のGAS URL（電子黒板と同じもの）に戻しました。\nもう一度「🔗 シフトから取得（GAS）」を押してみてください。');
+}
+function renderGasUrlNote(){
+  const el=document.getElementById('gasUrlNote'); if(!el)return;
+  const u=(S.settings.gasUrl||'').trim();
+  if(u===GAS_URL_DEFAULT){ el.style.color=''; el.innerHTML='✅ 電子黒板と同じ既定のURLです。'; return; }
+  el.style.color='var(--danger)';
+  el.innerHTML='⚠️ <b>電子黒板と違うURLです</b>（古いデプロイのURLや、別のスクリプトのURLかもしれません）。'+
+    ' <button class="btn small" onclick="resetGasUrl()">既定のURLに戻す</button>';
 }
 // 一度だけ走るデータ整理（既存の入力は保持）
 function migrateV3(){
@@ -989,7 +1009,10 @@ function gloveSetDiag(d){
     error:(d&&d.error)||'', notes:(d&&d.notes)||[],
     sizeFrom:(d&&d.sizeFrom)||null, sheets:(d&&d.sheets)||null,
     // 「type を shift / haichi / … で指定してください」＝手袋に対応していない古いGASが動いている
-    stale: !!(d&&typeof d.error==='string'&&/type を/.test(d.error)) };
+    stale: !!(d&&typeof d.error==='string'&&/type を/.test(d.error)),
+    // 手袋の形（days/sizes/perPerson）を全く持たない応答＝別のスクリプトか古いデプロイのURLを呼んでいる
+    wrongUrl: !!(d && !('days' in d) && !('perPerson' in d) && !(typeof d.error==='string' && /type を/.test(d.error))),
+    url: (S.settings.gasUrl||'').trim() };
   save(); renderGloves();
 }
 // 起動時に1日1回だけ、シフトの手袋サイズを自動で取り直す（画面を開くだけで最新になる）
@@ -1074,8 +1097,13 @@ function renderGloves(){
       dg.innerHTML= g.stale
         ? '⚠️ <b>いま動いているGASが古いバージョンです</b>（手袋にまだ対応していません）。<br>'+
           'GASを新しい内容に貼り替えて「デプロイを管理 → 鉛筆 → バージョン＝<b>新バージョン</b> → デプロイ」をしてください。'
+        : g.wrongUrl
+        ? '⚠️ <b>手袋のデータではないものが返ってきました</b>＝ ⚙設定のGAS URLが、<b>別のスクリプト</b>か<b>古いデプロイ</b>のURLの可能性があります。'+
+          ' <button class="btn small" onclick="resetGasUrl()">既定のURLに戻す</button>'+
+          '<br><span class="muted" style="font-size:11px">いま使っているURL： '+esc(g.url||'（未設定）')+'</span>'
         : '⚠️ <b>取得できませんでした</b>：'+esc(g.error||'原因不明')+
-          ((g.notes&&g.notes.length)?('<br>'+esc(g.notes.join(' ／ '))):'');
+          ((g.notes&&g.notes.length)?('<br>'+esc(g.notes.join(' ／ '))):'')+
+          '<br><span class="muted" style="font-size:11px">いま使っているURL： '+esc(g.url||'（未設定）')+'</span>';
     }
   }
   const meta=document.getElementById('gloveMeta');
@@ -1863,7 +1891,7 @@ function saveSettings(){
   S.settings.baseDate=document.getElementById('baseDate').value||todayStr();
   S.settings.safetyDays=Number(document.getElementById('safetyDays').value||0);
   S.settings.scrapAlertPct=Number(document.getElementById('scrapAlertPct').value||0);
-  save();document.getElementById('settingsHint').textContent='保存しました。';recalcAll();
+  save();document.getElementById('settingsHint').textContent='保存しました。';renderGasUrlNote();recalcAll();
 }
 function exportJson(){const blob=new Blob([JSON.stringify(S,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='資材管理データ_'+todayStr()+'.json';a.click();}
@@ -1883,6 +1911,7 @@ document.getElementById('nav').addEventListener('click',e=>{const b=e.target.clo
 function recalcAll(){renderDash();renderUsage();}
 function initUI(){
   document.getElementById('gasUrl').value=S.settings.gasUrl||'';
+  renderGasUrlNote();
   document.getElementById('shareOn').checked=!!S.settings.shareOn;
   document.getElementById('deviceName').value=S.settings.deviceName||'';
   document.getElementById('startDate').value=S.settings.startDate||'2026-05-01';
