@@ -85,7 +85,8 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
   <h1>🧰 資材管理アプリ</h1>
   <div class="status">
     <div id="asof">—</div>
-    <div><span id="srcbadge" class="badge sample">サンプル</span></div>
+    <div><span id="srcbadge" class="badge sample">サンプル</span>
+      <span id="syncMini" class="badge" style="background:#eef1f5;color:#555;cursor:pointer;margin-left:4px" title="ほかのPCとの共有の状態（クリックで設定画面へ）" onclick="switchView('settings')">共有：オフ</span></div>
   </div>
 </header>
 <nav id="nav">
@@ -163,7 +164,8 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
 <!-- ============ ORDERS HISTORY ============ -->
 <section id="view-orders" class="view">
   <div class="sec-title">発注履歴</div>
-  <div class="hint">発注はダッシュボードの⚠️行の「発注」ボタンから行います。ここは記録の一覧です。</div>
+  <div class="hint">発注はダッシュボードの⚠️行の「発注」ボタンから行います。押した発注はここに<b>すぐ</b>記録され、共有がオンなら<b>そのまま全PCへ送信</b>されます（この画面を開いたときにも最新を取り込みます）。</div>
+  <div id="ordersShareWarn" class="hint" style="display:none;border-color:var(--danger);color:var(--danger);font-weight:700"></div>
   <div class="tablewrap">
     <table id="orderTable">
       <thead><tr>
@@ -240,13 +242,13 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
 <section id="view-mat" class="view">
   <div class="sec-title">資材マスタ
     <button class="btn small" onclick="addMaterial()">＋ 資材を追加</button>
-    <button class="btn sec small" onclick="addMissingMaterials()">＋ 棚卸8.3の消耗品を追加</button>
     <button class="btn sec small" onclick="coverBulk(true)" title="分類が「消耗品」の資材にまとめて「○日分の在庫を確保」の基準を付けます（既定45日）">＋ 消耗品に「○日分」の基準を追加</button>
     <button class="btn sec small" onclick="coverBulk(false)">消耗品の「○日分」基準を外す</button>
   </div>
   <div class="hint"><b>発注点は自動計算</b>（日次平均×(LT+安全在庫日数)）なのでここでは触りません。<b>LT日数</b>＝発注〜納品の日数、<b>破棄率%</b>は棚卸で自動更新されます（手動修正も可）。<br>
   <b>アラート方式</b>：<b>発注書連動</b>＝荷造数から自動（箱・袋・シール等）／<b>定期</b>＝○日ごとにチェック（半年=180・半月=15。手袋・エプロン等の消耗品向け）／<b>残数</b>＝残り○個で警告（ラップ・テープ等）／<b>なし</b>＝監視しない。<br>
-  <b>別基準「○日分の在庫が確保できているか」</b>：上のボタン、またはダッシュボードの各行の <b>＋ 基準を追加</b> から付けられます。<b>アラート方式はそのまま残り、この基準が追加で効きます</b>（例：消耗品は45日分を切ったら発注推奨）。<br>
+  <b>別基準「○日分の在庫が確保できているか」</b>：下の表の <b>○日分基準</b> 欄に日数を入れる（空欄＝この基準を使わない）か、上のボタンで消耗品へまとめて付けます。<b>アラート方式はそのまま残り、この基準が追加で効きます</b>。<br>
+  　→ 付けた資材は <b>在庫ダッシュボードの「状態／アクション」欄</b>に <b>✅基準45日分：いま ◯日分</b> と表示され、下回ると <b>⚠️＝発注推奨</b> になります（消耗品は45日分が目安）。<br>
   <b>季節開始/終了</b>は「そろそろ切替では？」のお知らせのメド（空欄＝通年）。実際のグレー切替は右の <b>🟢使用中／🕒季節外</b> ボタンで手動です。<br>
   <b>並べ替え</b>：左の <b>⠿</b> をつかんで上下にドラッグすると、資材の並び順を変えられます（ダッシュボードなど全画面の並びに反映されます）。</div>
   <div class="tablewrap">
@@ -254,7 +256,7 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
       <thead><tr>
         <th title="ドラッグで並べ替え"></th><th class="l">分類</th><th class="l">資材名</th><th class="l">単位</th><th class="l">仕入先</th>
         <th>LT日数</th><th>基準在庫</th><th>破棄率%</th><th>最小ロット</th>
-        <th title="発注書連動/定期/残数/なし">アラート方式</th><th title="定期=日数(半年180/半月15)／残数=個数">周期/しきい値</th>
+        <th title="発注書連動/定期/残数/なし">アラート方式</th><th title="定期=日数(半年180/半月15)／残数=個数">周期/しきい値</th><th title="この日数ぶんの在庫を確保できているかを見る別基準。空欄＝使わない（消耗品は45が目安）">○日分基準</th>
         <th title="使う時期の開始(MM-DD)。空欄=通年">季節開始</th><th title="使う時期の終了(MM-DD)。空欄=通年">季節終了</th><th></th>
       </tr></thead>
       <tbody></tbody>
@@ -491,7 +493,7 @@ function bunruiTag(k){
 const SEASON={'新旨2kg':['06-01','08-07'],'新旨3.34kg':['06-01','08-07'],'新旨れんこんシール':['06-01','08-07']};
 // 新旨(シーズン初期) ⇄ 旨(通常) の箱・シールの対応。[新旨側, 旨側]
 const SHINUMA_PAIRS=[['新旨2kg','2kg'],['新旨3.34kg','旨3.34kg'],['新旨れんこんシール','旨れんこんシール']];
-// 棚卸2026.8.3にあってアプリに無い消耗品（発注書に直結しない）。「＋消耗品を追加」で不足分だけ追加（既存は変更しない）
+// 棚卸2026.8.3の消耗品（発注書に直結しない）。初期データに最初から入れる（＝資材マスタの追加ボタンは廃止）
 // alertMode: 'threshold'=残数しきい値 / 'periodic'=定期(N日ごと)
 const EXTRA_MATERIALS=[
   {cat:'消耗品',name:'機械用OPPテープ',unit:'個',supplier:'日野出',initStock:10,alertMode:'threshold',thresholdQty:2},
@@ -514,6 +516,11 @@ function defaultState(){
     initStock:m[5],scrapRate:m[6],minLot:m[7],
     seasonStart:(SEASON[m[1]]||['',''])[0],seasonEnd:(SEASON[m[1]]||['',''])[1],seasonOff:false
   }));
+  // 棚卸8.3の消耗品も最初から入れておく（以前は資材マスタのボタンで後から追加していた）
+  EXTRA_MATERIALS.forEach((e,i)=>materials.push(Object.assign({
+    id:'MX'+(i+1), leadDays:7, scrapRate:0, minLot:0,
+    seasonStart:'', seasonEnd:'', seasonOff:false, periodDays:180, thresholdQty:2
+  }, e)));
   const skus=SEED_SKUS.map(s=>({tori:s[0],kubun:s[1],irisu:s[2],exc:!!s[3],
     kg:!!s[4],boxSize:s[5]||s[2],key:skuKey(s[0],s[1],s[2])}));
   return {materials,skus,boms:{},orders:[],stocktakes:[],funes:{},futureFunes:{},
@@ -580,21 +587,6 @@ function seasonSuggest(m){
 function toggleSeason(id){const m=matById(id);if(!m)return;m.seasonOff=!m.seasonOff;save();recalcAll();renderMat();}
 function daysSince(dateStr){ if(!dateStr)return Infinity;
   try{const a=new Date(dateStr),b=new Date(S.settings.baseDate||todayStr());return Math.floor((b-a)/86400000);}catch(e){return Infinity;} }
-// 棚卸8.3の消耗品のうち、まだ無いものだけ追加（既存資材は変更しない）
-function addMissingMaterials(){
-  let added=0;
-  EXTRA_MATERIALS.forEach(e=>{
-    if(S.materials.some(m=>m.name===e.name))return;
-    S.materials.push(Object.assign({
-      id:'M'+Date.now()+'_'+added, leadDays:7, scrapRate:0, minLot:0,
-      seasonStart:'', seasonEnd:'', seasonOff:false, periodDays:180, thresholdQty:2,
-      lastDone:S.settings.startDate||'2026-08-03'
-    }, e));
-    added++;
-  });
-  save();renderMat();refreshMatSelects();recalcAll();
-  alert(added>0? (added+'品目の消耗品を追加しました（既にある資材は変更していません）。') : '追加する消耗品はありませんでした（すべて登録済み）。');
-}
 // 定期アラートの「確認した」→ 次回まで再カウント
 function doPeriodicCheck(id){const m=matById(id);if(!m)return;m.lastDone=S.settings.baseDate||todayStr();save();recalcAll();renderMat();}
 function stocktakeStatus(){
@@ -915,15 +907,10 @@ function renderDash(){
       action=(r.mode==='threshold' ? '⚠️ 残り'+fmt(r.stock)+'（しきい値'+fmt(r.m.thresholdQty)+'）' : '⚠️ 発注推奨')+
         ' <button class="btn small" onclick="openOrderDlg(\''+r.m.id+'\')">発注</button>';
     }else{ cls='state-ok'; action=(r.mode==='threshold'?'✅ 適正（残'+fmt(r.stock)+'）':'✅ 適正')+' '+orderBtn; }
-    // ③ 別基準「○日分の在庫が確保できているか」＝消耗品向け。基準を追加すると、他の方式に足して効く。
-    if(!r.off){
-      if(r.coverOn){
-        const haveTxt=(r.coverHave!=null&&isFinite(r.coverHave))?fmt(r.coverHave)+'日分':(r.coverDaily>0?'—':'使用量不明');
-        action+=' <span class="'+(r.coverWarn?'state-warn':'state-ok')+'" style="font-size:11px" title="'+(r.coverSrc==='plan'?'これから'+fmt(r.coverDays)+'日ぶんの予定（シフト・発注書）から判定':'起点日〜基準日の日次平均から判定')+'">'+(r.coverWarn?'⚠️':'✅')+'基準'+fmt(r.coverDays)+'日分：いま '+haveTxt+'</span>'+
-          ' <button class="btn sec small" onclick="openCoverDlg(\''+r.m.id+'\')">基準を編集</button>';
-      }else{
-        action+=' <button class="btn sec small" onclick="openCoverDlg(\''+r.m.id+'\')" title="「○日分の在庫が確保できているか」という基準を、この資材に追加します（既定45日）">＋ 基準を追加</button>';
-      }
+    // ③ 別基準「○日分の在庫が確保できているか」＝設定は「資材マスタ」画面。ここは結果だけ表示（ボタンは置かない＝画面をシンプルに）。
+    if(!r.off && r.coverOn){
+      const haveTxt=(r.coverHave!=null&&isFinite(r.coverHave))?fmt(r.coverHave)+'日分':(r.coverDaily>0?'—':'使用量不明');
+      action+=' <span class="'+(r.coverWarn?'state-warn':'state-ok')+'" style="font-size:11px" title="'+(r.coverSrc==='plan'?'これから'+fmt(r.coverDays)+'日ぶんの予定（シフト・発注書）から判定':'起点日〜基準日の日次平均から判定')+'（基準の追加・変更は「資材マスタ」画面）">'+(r.coverWarn?'⚠️':'✅')+'基準'+fmt(r.coverDays)+'日分：いま '+haveTxt+'</span>';
     }
     if(!r.off && r.hasSeason){
       action+=' <button class="btn '+(r.suggest==='off'?'warn':'sec')+' small" onclick="toggleSeason(\''+r.m.id+'\')">'+(r.suggest==='off'?'⏸ 季節外にする（そろそろ）':'季節外にする')+'</button>';
@@ -977,20 +964,28 @@ function renderUsage(){
 function setGlovePer(v){ S.glove.perPerson=Math.max(1,Math.round(Number(v)||8)); save(); recalcAll(); }
 function setGloveOn(v){ S.glove.on=!!v; save(); recalcAll(); }
 function setGloveMat(size,mid){ S.glove.map=S.glove.map||{}; if(mid)S.glove.map[size]=mid; else delete S.glove.map[size]; save(); recalcAll(); }
-function fetchGloves(){
+function fetchGloves(silent){
   const url=(S.settings.gasUrl||'').trim();
-  if(!url){alert('設定画面で GAS の URL を入れてください。');switchView('settings');return;}
+  if(!url){ if(silent)return; alert('設定画面で GAS の URL を入れてください。');switchView('settings');return;}
   const cb='gloveCb_'+Date.now();
   const sc=document.createElement('script');
-  window[cb]=(d)=>{try{applyGloves(d);}finally{try{delete window[cb];}catch(e){}sc.remove();}};
+  window[cb]=(d)=>{try{applyGloves(d,silent);}finally{try{delete window[cb];}catch(e){}sc.remove();}};
   // 起点日〜（今日＋120日）＝過去の実績と、提出済みの先のシフトを両方まとめて取る
   const from=S.settings.startDate||todayStr();
   sc.src=url+(url.includes('?')?'&':'?')+'type=gloveUsage&start='+encodeURIComponent(from)+'&callback='+cb;
-  sc.onerror=()=>{alert('取得に失敗しました。GASのURL・デプロイをご確認ください。');sc.remove();try{delete window[cb];}catch(e){}};
+  sc.onerror=()=>{ if(!silent)alert('取得に失敗しました。GASのURL・デプロイをご確認ください。');sc.remove();try{delete window[cb];}catch(e){}};
   document.body.appendChild(sc);
 }
-function applyGloves(d){
-  if(!d||d.error&&!(d.days&&d.days.length)){alert('シフトから手袋を読めませんでした。\n'+((d&&d.error)||'')+'\n\nシフト表のサイズ列（S/M/L）をご確認ください。');return;}
+// 起動時に1日1回だけ、シフトの手袋サイズを自動で取り直す（画面を開くだけで最新になる）
+function autoFetchGloves(){
+  if(!(S.settings.gasUrl||'').trim())return;
+  const today=todayStr();
+  if(S.glove&&S.glove.autoDate===today)return;   // 今日はもう取った
+  S.glove.autoDate=today;
+  fetchGloves(true);
+}
+function applyGloves(d,silent){
+  if(!d||d.error&&!(d.days&&d.days.length)){ if(silent)return; alert('シフトから手袋を読めませんでした。\n'+((d&&d.error)||'')+'\n\nシフト表のサイズ列（S/M/L）をご確認ください。');return;}
   S.glove.perPerson=Number(d.perPerson||S.glove.perPerson||8)||8;
   S.glove.sizes=(d.sizes||[]).slice();
   S.glove.missing=(d.missing||[]).slice();
@@ -1003,7 +998,8 @@ function applyGloves(d){
   });
   S.glove.days=days;
   gloveAutoMap();
-  save();recalcAll();
+  save();recalcAll();renderGloves();
+  if(silent)return;
   alert('✓ シフトから取得しました。\n対象 '+(d.days||[]).length+'日分 ／ サイズ '+((d.sizes||[]).join('・')||'—')+' ／ 1人 '+S.glove.perPerson+'枚'+
     ((d.missing||[]).length?('\n\n⚠ サイズ未記入： '+d.missing.join('・')):''));
 }
@@ -1062,6 +1058,7 @@ function renderGloves(){
 }
 
 function renderOrders(){
+  refreshShareWarn();
   const tb=document.querySelector('#orderTable tbody');
   const sorted=[...S.orders].sort((a,b)=>(b.orderDate||'').localeCompare(a.orderDate||''));
   tb.innerHTML=sorted.map(o=>{
@@ -1079,7 +1076,7 @@ function renderOrders(){
         <button class="btn sec small" onclick="delOrder('${o.id}')">✕</button></td></tr>`;
   }).join('')||'<tr><td colspan="9" class="muted l">まだ発注記録がありません（ダッシュボードの⚠️行「発注」から記録）</td></tr>';
 }
-function setOrderQty(id,v){const o=S.orders.find(x=>x.id===id);if(!o)return;o.qty=Number(v||0);save();recalcAll();}
+function setOrderQty(id,v){const o=S.orders.find(x=>x.id===id);if(!o)return;o.qty=Number(v||0);save();recalcAll();cloudPushNow();}
 
 let stRows=[];
 function renderStock(){
@@ -1305,6 +1302,7 @@ function renderMat(){
       <option value="none"${m.alertMode==='none'?' selected':''}>なし</option>
     </select></td>
     <td>${m.alertMode==='periodic'?'<input class="cell" style="width:54px" type="number" value="'+(m.periodDays||180)+'" onchange="setMat(\''+m.id+'\',\'periodDays\',this.value)"> 日':(m.alertMode==='threshold'?'<input class="cell" style="width:54px" type="number" value="'+(m.thresholdQty||2)+'" onchange="setMat(\''+m.id+'\',\'thresholdQty\',this.value)"> '+(m.unit||''):'<span class="muted">—</span>')}</td>
+    <td><input class="cell" style="width:56px" type="number" min="0" step="1" placeholder="—" title="この日数ぶんの在庫を確保できているかを見ます。空欄＝この基準を使わない" value="${m.coverOn?Number(m.coverDays||45):''}" onchange="setCoverDays('${m.id}',this.value)"></td>
     <td><input class="cell" style="width:64px" placeholder="MM-DD" value="${m.seasonStart||''}" onchange="setMat('${m.id}','seasonStart',this.value)"></td>
     <td><input class="cell" style="width:64px" placeholder="MM-DD" value="${m.seasonEnd||''}" onchange="setMat('${m.id}','seasonEnd',this.value)"></td>
     <td class="l">${(m.seasonStart||m.seasonEnd)?'<button class="btn sec small" onclick="toggleSeason(\''+m.id+'\')">'+(m.seasonOff?'🕒 季節外':'🟢 使用中')+'</button> ':''}<button class="btn sec small" onclick="delMat('${m.id}')">✕</button></td></tr>`).join('');
@@ -1312,6 +1310,11 @@ function renderMat(){
 function setMat(id,k,v){const m=matById(id);if(!m)return;
   m[k]=(['leadDays','initStock','scrapRate','minLot','periodDays','thresholdQty'].includes(k))?Number(v):v;
   save();recalcAll();if(k==='alertMode')renderMat();}
+// 資材マスタの「○日分基準」欄。空欄＝この基準を使わない
+function setCoverDays(id,v){const m=matById(id);if(!m)return;
+  const s=String(v==null?'':v).trim(), n=Math.round(Number(s||0));
+  if(s===''||!(n>0)){ m.coverOn=false; } else { m.coverOn=true; m.coverDays=n; }
+  save();recalcAll();renderMat();}
 /* 資材マスタ：ドラッグ&ドロップで並べ替え */
 let _matDrag=null;
 function matDragStart(ev,i){ _matDrag=i; try{ev.dataTransfer.effectAllowed='move';ev.dataTransfer.setData('text/plain',String(i));}catch(e){} }
@@ -1500,7 +1503,7 @@ document.getElementById('o_save').addEventListener('click',(e)=>{
   const due=d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
   S.orders.push({id:'O'+Date.now(),materialId:_orderMid,supplier:m.supplier,orderDate:date,qty,dueDate:due,deliveredDate:'',receivedQty:0,reason});
   if((m.alertMode||'auto')==='periodic') m.lastDone=date;   // 定期品は発注＝チェック完了とみなす
-  save();recalcAll();renderOrders();
+  save();recalcAll();renderOrders();cloudPushNow();          // ⑤ 発注はその場で発注履歴へ＋全PCへ送信
 });
 let _delivId=null;
 function openDeliver(id){_delivId=id;const o=S.orders.find(x=>x.id===id);const m=matById(o.materialId);
@@ -1510,9 +1513,9 @@ function openDeliver(id){_delivId=id;const o=S.orders.find(x=>x.id===id);const m
 document.getElementById('d_save').addEventListener('click',()=>{
   const o=S.orders.find(x=>x.id===_delivId);if(!o)return;
   o.deliveredDate=document.getElementById('d_date').value;o.receivedQty=Number(document.getElementById('d_qty').value);
-  save();recalcAll();renderOrders();
+  save();recalcAll();renderOrders();cloudPushNow();
 });
-function delOrder(id){if(!confirm('この発注記録を削除しますか？'))return;S.orders=S.orders.filter(o=>o.id!==id);save();recalcAll();renderOrders();}
+function delOrder(id){if(!confirm('この発注記録を削除しますか？'))return;S.orders=S.orders.filter(o=>o.id!==id);save();recalcAll();renderOrders();cloudPushNow();}
 
 /* 現在庫の数え直し（月の途中でも実在庫に合わせる） */
 let _countMid=null;
@@ -1673,7 +1676,31 @@ function loadSampleFunes(){
 /* =================== CLOUD SYNC（ほかのPCと共有） =================== */
 let cloudPushTimer=null, cloudPollTimer=null, cloudDirty=false, cloudBusy=false;
 function shareEnabled(){ return !!(S.settings.shareOn && (S.settings.gasUrl||'').trim()); }
-function setSyncStatus(txt,color){ const el=document.getElementById('syncStatus'); if(el){ el.textContent=txt; el.style.color=color||''; } }
+function setSyncStatus(txt,color){ const el=document.getElementById('syncStatus'); if(el){ el.textContent=txt; el.style.color=color||''; }
+  // ヘッダーにも常時表示（共有オフ・エラーにその場で気づけるように）
+  const mi=document.getElementById('syncMini');
+  if(mi){ mi.textContent=String(txt).split('（')[0];
+    mi.style.background=(color==='#137333')?'#dcfce7':((color==='#d9534f')?'#fee2e2':'#eef1f5');
+    mi.style.color=color||'#555'; mi.title=txt+'（クリックで設定画面へ）'; }
+  refreshShareWarn();
+}
+// 発注履歴の「共有オフ」注意書き
+function refreshShareWarn(){
+  const w=document.getElementById('ordersShareWarn'); if(!w)return;
+  if(shareEnabled()){ w.style.display='none'; return; }
+  w.style.display='';
+  w.innerHTML='⚠️ 共有がオフです：発注履歴は<b>このPCだけ</b>に残り、ほかのPCには出ません。設定画面で「ほかのPCと同期する」をONにしてください。';
+}
+// 発注・納品など「すぐ全PCに出したい」変更は、1.5秒待たずにその場で送る
+function cloudPushNow(){ if(!shareEnabled()){ setSyncStatus(S.settings.shareOn?'共有：オン（GAS URL未設定）':'共有：オフ', S.settings.shareOn?'#d9534f':''); return; }
+  cloudDirty=true; clearTimeout(cloudPushTimer); cloudPush(false); }
+// 画面を開いたときに、その場でクラウドと突き合わせる（20秒ポーリングを待たない）
+function cloudCheckNow(){ if(!shareEnabled())return;
+  if(cloudDirty){ cloudPushNow(); return; }
+  cloudJsonp('shizaiMeta',(m)=>{ const rev=Number(m.rev)||0;
+    if(rev>S.cloud.rev && !cloudDirty) cloudPullFull(()=>setSyncStatus('🔄 他のPCの更新を反映しました','#137333'));
+  },()=>{});
+}
 // クラウドに保存するデータ（PCごとの設定は除く。cloudメタも除く）
 function stateForCloud(){ const c=JSON.parse(JSON.stringify(S)); delete c.cloud; delete c.backups; // 月末バックアップは専用シートに別保存（日次同期は軽く保つ）
   if(c.settings){ delete c.settings.gasUrl; delete c.settings.shareOn; delete c.settings.deviceName; }
@@ -1808,6 +1835,7 @@ function switchView(v){
   document.querySelectorAll('.view').forEach(s=>s.classList.remove('active'));
   document.getElementById('view-'+v).classList.add('active');
   if(v==='bom')renderBom();if(v==='stock')renderStock();if(v==='backup')renderBackups();if(v==='switch')renderSwitch();
+  if(v==='orders'){ renderOrders(); cloudCheckNow(); }   // 開くたびに最新の履歴を取り込む（全PC共有）
 }
 document.getElementById('nav').addEventListener('click',e=>{const b=e.target.closest('button');if(b)switchView(b.dataset.v);});
 function recalcAll(){renderDash();renderUsage();}
@@ -1827,7 +1855,7 @@ function initUI(){
   if(location.hash==='#stock')switchView('stock');
 }
 window.addEventListener('hashchange',()=>{if(location.hash==='#stock')switchView('stock');});
-load();initUI();initCloud();
+load();initUI();initCloud();autoFetchGloves();
 </script>
 </body>
 </html>
