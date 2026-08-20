@@ -170,11 +170,21 @@
   .stat-tile .ampm-line .am{ color:var(--blue-deep);}
   .stat-tile .ampm-line .pm{ color:#a4632a;}
   .stat-tile .ampm-line b{ font-size:15px; font-variant-numeric:tabular-nums; margin-left:2px;}
-  .am-mark-btn{
+  /* ② 午前・午後は「自動反映」だが、手でも入れ直せる。数字が入力欄になっている（点線＝手入力できる印） */
+  .ampm-inp{
+    font-family:inherit; font-size:15px; font-weight:800; font-variant-numeric:tabular-nums;
+    width:58px; margin-left:2px; padding:1px 3px; text-align:right; color:inherit;
+    background:transparent; border:none; border-bottom:1px dashed rgba(11,11,11,0.30); border-radius:0;
+  }
+  .ampm-inp::-webkit-outer-spin-button,.ampm-inp::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0;}
+  .ampm-inp{ -moz-appearance:textfield;}
+  .ampm-inp:focus{ outline:none; background:#fffbe6; border-bottom:2px solid var(--amber);}
+  .ampm-inp.manual{ background:#fff4d6; border-bottom:2px solid var(--amber);}   /* 手入力で上書き中 */
+  .ampm-reset-btn{
     appearance:none; cursor:pointer; font-family:inherit; font-size:11px; font-weight:800;
     border:1px solid var(--blue); background:#fff; color:var(--blue); padding:4px 10px; border-radius:12px;
   }
-  .am-mark-btn:active{ transform:scale(0.97);}
+  .ampm-reset-btn:active{ transform:scale(0.97);}
   .ampm-note{ font-size:11px; color:var(--muted); margin-top:8px;}
 
   /* 数量変更 */
@@ -559,6 +569,84 @@
   .seisan-hint b{ color:var(--text-secondary);}
 
   /* =====================================================================
+     ⑨ 舟数モニター（もう1台の液晶用）
+     遠くから見るシートなので「数字を大きく・色で区別・余計なものを置かない」。
+       上段＝本日目標舟数（黄）／現在合計舟数（赤）
+       下段＝前日ストック（水色）＋ 現在掘り数（青）＋ 生産者・生産者予定（緑）
+     ===================================================================== */
+  .fn-wrap{ padding:22px 30px 26px; }
+  .fn-top{ display:grid; grid-template-columns:1fr 1fr; gap:30px; }
+  .fn-big{ border:3px solid #111; border-radius:6px; overflow:hidden; }
+  .fn-big .fn-hd{
+    font-size:38px; font-weight:900; text-align:center; padding:8px 0 10px;
+    letter-spacing:.06em; color:#111; border-bottom:3px solid #111; line-height:1.1;
+  }
+  .fn-big .fn-num{
+    font-size:150px; font-weight:900; text-align:center; line-height:1.05;
+    font-variant-numeric:tabular-nums; font-style:italic; color:#111; padding:6px 0 14px;
+  }
+  .fn-big .fn-num small{ font-size:44px; font-weight:900; font-style:normal; margin-left:8px; }
+  .fn-big.target .fn-hd{ background:#ffc000; }
+  .fn-big.target .fn-num{ background:#ffe699; }
+  .fn-big.now    .fn-hd{ background:#ff7c80; }
+  .fn-big.now    .fn-num{ background:#ffc7ce; }
+
+  /* 上段と下段をつなぐ「残り」の帯 */
+  .fn-mid{ display:flex; align-items:center; gap:18px; margin:18px 0 6px; }
+  .fn-mid .fn-bar{ flex:1; height:26px; background:#e8ebf1; border:2px solid #111; border-radius:4px; overflow:hidden;}
+  .fn-mid .fn-bar i{ display:block; height:100%; width:0; background:var(--green); transition:width .4s ease;}
+  .fn-mid .fn-bar.over i{ background:var(--blue);}
+  .fn-mid .fn-rest{ font-size:30px; font-weight:900; font-variant-numeric:tabular-nums; color:var(--text-primary); white-space:nowrap;}
+  .fn-mid .fn-rest b{ font-size:46px; margin:0 4px;}
+  .fn-mid .fn-rest.done{ color:var(--green);}
+
+  /* 下段：前日ストック ＋ 現在掘り数 ＋ 生産者／生産者予定 */
+  .fn-calc{ display:flex; align-items:stretch; justify-content:center; gap:16px; margin-top:14px; flex-wrap:nowrap; }
+  .fn-op{ display:flex; align-items:center; font-size:72px; font-weight:900; color:#111; line-height:1; padding:0 2px;}
+  .fn-cell{ border:2px solid #111; border-radius:4px; overflow:hidden; min-width:230px; }
+  .fn-cell .ch{ font-size:26px; font-weight:900; text-align:center; padding:5px 12px; border-bottom:2px solid #111; color:#111; white-space:nowrap;}
+  .fn-cell .cv{
+    font-size:74px; font-weight:900; font-style:italic; text-align:center; line-height:1.1;
+    font-variant-numeric:tabular-nums; padding:4px 6px 10px; color:#111;
+  }
+  .fn-cell.stock  .ch{ background:#b4c7dc;} .fn-cell.stock  .cv{ background:#dce6f1;}
+  .fn-cell.hori   .ch{ background:#00b0f0;} .fn-cell.hori   .cv{ background:#c9ecfb;}
+  .fn-cell.sei    .ch{ background:#c6e0b4;} .fn-cell.sei    .cv{ background:#e2efda;}
+  .fn-cell.seiyo  .ch{ background:#a9d08e;} .fn-cell.seiyo  .cv{ background:#d6e9c6;}
+  .fn-pair{ display:flex; gap:0; }
+  .fn-pair .fn-cell{ min-width:180px; border-radius:0;}
+  .fn-pair .fn-cell:first-child{ border-radius:4px 0 0 4px; border-right-width:1px;}
+  .fn-pair .fn-cell:last-child{ border-radius:0 4px 4px 0; border-left-width:1px;}
+  /* 手入力できるセル（前日ストック・生産者予定）＝数字がそのまま入力欄 */
+  .fn-cell .cv input{
+    font-family:inherit; font-size:74px; font-weight:900; font-style:italic; text-align:center;
+    font-variant-numeric:tabular-nums; width:100%; color:#111;
+    background:transparent; border:none; padding:0; line-height:1.1;
+  }
+  .fn-cell .cv input::-webkit-outer-spin-button,.fn-cell .cv input::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0;}
+  .fn-cell .cv input{ -moz-appearance:textfield;}
+  .fn-cell .cv input:focus{ outline:3px solid var(--blue); outline-offset:-3px; background:#fff;}
+  .fn-cell .edit-mark{ display:block; font-size:12px; font-weight:800; color:#3a4a5c; margin-top:-6px; padding-bottom:4px; text-align:center;}
+  .fn-foot{ display:flex; align-items:center; gap:14px; margin-top:16px; font-size:13px; color:var(--muted); font-weight:700;}
+  .fn-foot .fn-status{ margin-left:auto; }
+  .fn-kiosk-btn{
+    appearance:none; cursor:pointer; font-family:inherit; font-size:13px; font-weight:800;
+    border:1px solid var(--blue); background:#fff; color:var(--blue); padding:6px 14px; border-radius:16px;
+  }
+  /* 大画面モード＝ヘッダーとタブを隠して舟数モニターだけを大きく出す */
+  body.kiosk header, body.kiosk .view-switch, body.kiosk footer.updated, body.kiosk #alert-bar{ display:none !important; }
+  body.kiosk .fn-wrap{ padding:26px 34px; }
+  body.kiosk .fn-big .fn-num{ font-size:186px; }
+  body.kiosk .fn-big .fn-hd{ font-size:44px; }
+  body.kiosk .fn-cell .cv, body.kiosk .fn-cell .cv input{ font-size:84px; }
+  #fn-kiosk-exit{
+    display:none; position:fixed; right:14px; top:12px; z-index:9999;
+    appearance:none; cursor:pointer; font-family:inherit; font-size:14px; font-weight:800;
+    border:2px solid var(--blue-deep); background:#fff; color:var(--blue-deep); padding:6px 14px; border-radius:18px;
+  }
+  body.kiosk #fn-kiosk-exit{ display:block; }
+
+  /* =====================================================================
      ③ スマホ表示（幅900px未満）
      液晶用の「1画面フィット（縮小）」をやめて、1カラムに積み替えて縦スクロールで読む。
      JS側（fitBoard）も body に .mobile を付けて拡大縮小をしない。
@@ -639,6 +727,21 @@
     .hojo-card .fedit, .seisan-size input, .seisan-funes-row .seisan-funes-input{ font-size:16px;}
     .seisan-grid{ grid-template-columns:1fr;}
     .seisan-namebtns .name-btn{ font-size:15px; padding:9px 16px;}
+    /* ⑨ 舟数モニターはスマホでは縦積み（数字は液晶ほど大きくしない） */
+    .fn-wrap{ padding:12px 12px 20px;}
+    .fn-top{ grid-template-columns:1fr; gap:12px;}
+    .fn-big .fn-hd{ font-size:20px; padding:5px 0 6px;}
+    .fn-big .fn-num{ font-size:66px;}
+    .fn-big .fn-num small{ font-size:22px;}
+    .fn-mid{ flex-wrap:wrap; gap:10px; margin:12px 0 4px;}
+    .fn-mid .fn-rest{ font-size:18px;} .fn-mid .fn-rest b{ font-size:28px;}
+    .fn-calc{ flex-wrap:wrap; gap:8px;}
+    .fn-op{ font-size:34px;}
+    .fn-cell{ min-width:0; flex:1 1 44%;}
+    .fn-pair{ flex:1 1 100%;}
+    .fn-pair .fn-cell{ min-width:0; flex:1 1 50%;}
+    .fn-cell .ch{ font-size:14px;}
+    .fn-cell .cv, .fn-cell .cv input{ font-size:40px;}
   }
   /* さらに狭いスマホ（iPhone SE 等） */
   @media (max-width: 480px){
@@ -664,7 +767,10 @@
     <button class="tab"        id="tab-yohaichi" onclick="switchView('yohaichi')"><span class="ico">🔮</span>配置図（予測）</button>
     <button class="tab"        id="tab-hojo"     onclick="switchView('hojo')"><span class="ico">🚜</span>圃場（畑）</button>
     <button class="tab"        id="tab-seisan"   onclick="switchView('seisan')"><span class="ico">🧑‍🌾</span>生産者</button>
+    <button class="tab"        id="tab-funes"    onclick="switchView('funes')"><span class="ico">🚢</span>舟数モニター</button>
   </div>
+  <!-- ⑨ 大画面モードを抜けるボタン（大画面モード中だけ出る） -->
+  <button id="fn-kiosk-exit" onclick="fnKiosk(false)">↩ 通常表示に戻す</button>
 
   <div id="view-board" class="view active">
 
@@ -729,31 +835,32 @@
       <div class="card">
         <h3>本日実績（現時点）
           <span style="display:flex;align-items:center;gap:8px">
-            <button class="am-mark-btn" onclick="amMarkNow()" title="今の実績を午前ぶんとして固定します（以降は午後にカウント）">🕛 午前をここまでにする</button>
+            <button class="ampm-reset-btn" id="ampm-reset" style="display:none" onclick="amClearAllManual()" title="手で入れ直した午前・午後を消して、自動計算に戻します">↺ 午前・午後を自動に戻す</button>
             <span class="tag">実績</span>
           </span>
         </h3>
         <div class="stat-row">
           <div class="stat-tile"><div class="lbl">荷造り舟数（実績・現時点）</div><div class="val"><span id="j-funes">--</span>舟</div>
-            <div class="ampm-line"><span class="am">午前 <b id="j-funes-am">–</b></span><span class="pm">午後 <b id="j-funes-pm">–</b></span></div>
+            <!-- ② 午前・午後は自動反映。数字は入力欄なので、手で入れ直すこともできる（空欄にすると自動へ戻る） -->
+            <div class="ampm-line"><span class="am">午前 <input class="ampm-inp" id="j-funes-am" type="number" min="0" step="1" inputmode="numeric" placeholder="–"></span><span class="pm">午後 <input class="ampm-inp" id="j-funes-pm" type="number" min="0" step="1" inputmode="numeric" placeholder="–"></span></div>
             <div class="delta">圃場から持ってきた舟数</div></div>
           <div class="stat-tile"><div class="lbl">荷造りkg（実績）</div><div class="val"><span id="j-kg">--</span>kg</div>
-            <div class="ampm-line"><span class="am">午前 <b id="j-kg-am">–</b></span><span class="pm">午後 <b id="j-kg-pm">–</b></span></div>
+            <div class="ampm-line"><span class="am">午前 <input class="ampm-inp" id="j-kg-am" type="number" min="0" step="0.1" inputmode="decimal" placeholder="–"></span><span class="pm">午後 <input class="ampm-inp" id="j-kg-pm" type="number" min="0" step="0.1" inputmode="decimal" placeholder="–"></span></div>
             <div class="delta" id="j-kg-note">作った分の合計（CS・生産者分を除く）</div></div>
           <div class="stat-tile"><div class="lbl">歩留まり</div><div class="val"><span id="j-budomari">--</span><span style="font-size:15px;font-weight:600;">kg/舟</span></div>
             <div class="ampm-line"><span class="am">午前 <b id="j-bud-am">–</b></span><span class="pm">午後 <b id="j-bud-pm">–</b></span></div>
             <div class="delta">荷造りkg ÷ 舟数</div></div>
         </div>
-        <!-- ④ 加工（区分C/S）：荷造りCSキロ と 加工率（CSキロ ÷ 全ての荷造りキロ） -->
+        <!-- ④ 加工（区分C/S）：荷造りCSキロ と 加工率＝C・S㎏ ÷（荷造り㎏ ＋ C・S㎏ − 生産者C・S㎏） -->
         <div class="stat-row" style="margin-top:8px">
           <div class="stat-tile"><div class="lbl">荷造りCSキロ</div><div class="val"><span id="j-cs-kg">--</span>kg</div>
-            <div class="ampm-line"><span class="am">午前 <b id="j-cs-am">–</b></span><span class="pm">午後 <b id="j-cs-pm">–</b></span></div>
+            <div class="ampm-line"><span class="am">午前 <input class="ampm-inp" id="j-cs-am" type="number" min="0" step="0.1" inputmode="decimal" placeholder="–"></span><span class="pm">午後 <input class="ampm-inp" id="j-cs-pm" type="number" min="0" step="0.1" inputmode="decimal" placeholder="–"></span></div>
             <div class="delta">区分 C/S の作った分</div></div>
           <div class="stat-tile"><div class="lbl">加工率</div><div class="val"><span id="j-kakou">--</span><span style="font-size:15px;font-weight:600;">%</span></div>
             <div class="ampm-line"><span class="am">午前 <b id="j-kakou-am">–</b></span><span class="pm">午後 <b id="j-kakou-pm">–</b></span></div>
-            <div class="delta">CSキロ ÷ 全ての荷造りキロ</div></div>
+            <div class="delta" id="j-kakou-note">C・S㎏ ÷（荷造り㎏＋C・S㎏−生産者C・S㎏）</div></div>
         </div>
-        <div class="ampm-note" id="ampm-note">午前・午後は正午で自動的に区切ります（ボタンで手動区切りも可）。</div>
+        <div class="ampm-note" id="ampm-note">午前・午後は正午で自動的に区切って自動反映します。数字は手で入れ直せます（空欄にすると自動に戻ります）。</div>
       </div>
 
       <div class="card" id="materialCard" onclick="openShizaiApp()" style="cursor:pointer;position:relative" title="クリックで資材管理アプリを開く">
@@ -910,7 +1017,61 @@
     </div>
   </div><!-- /view-seisan -->
 
+  <!-- ===== ⑨ 舟数モニター（もう1台の液晶用。圃場＋生産者の“いまの舟数”を遠くからでも読めるように） ===== -->
+  <div id="view-funes" class="view">
+    <div class="fn-wrap">
+      <div class="fn-top">
+        <div class="fn-big target">
+          <div class="fn-hd">本日目標舟数</div>
+          <div class="fn-num"><span id="fn-target">--</span></div>
+        </div>
+        <div class="fn-big now">
+          <div class="fn-hd">現在合計舟数</div>
+          <div class="fn-num"><span id="fn-now">--</span></div>
+        </div>
+      </div>
 
+      <!-- 目標に対して今どこまで来ているか（遠くからでも一目で分かるバー＋残り舟数） -->
+      <div class="fn-mid">
+        <div class="fn-bar" id="fn-bar"><i></i></div>
+        <div class="fn-rest" id="fn-rest">のこり <b id="fn-rest-n">--</b> 舟</div>
+      </div>
+
+      <!-- 現在合計舟数の内訳＝前日ストック ＋ 現在掘り数 ＋ 生産者 -->
+      <div class="fn-calc">
+        <div class="fn-cell stock">
+          <div class="ch">前日ストック</div>
+          <div class="cv"><input id="fn-stock" type="number" min="0" step="1" inputmode="numeric" value="0"></div>
+          <span class="edit-mark">✎ 手入力</span>
+        </div>
+        <div class="fn-op">＋</div>
+        <div class="fn-cell hori">
+          <div class="ch">現在掘り数</div>
+          <div class="cv"><span id="fn-hori">0</span></div>
+          <span class="edit-mark">🚜 圃場（畑）タブから自動</span>
+        </div>
+        <div class="fn-op">＋</div>
+        <div class="fn-pair">
+          <div class="fn-cell sei">
+            <div class="ch">生産者</div>
+            <div class="cv"><span id="fn-sei">0</span></div>
+            <span class="edit-mark">🧑‍🌾 生産者タブから自動</span>
+          </div>
+          <div class="fn-cell seiyo">
+            <div class="ch">生産者予定</div>
+            <div class="cv"><input id="fn-seiyo" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></div>
+            <span class="edit-mark">✎ 手入力</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="fn-foot">
+        <button class="fn-kiosk-btn" onclick="fnKiosk(true)">⛶ 大画面モード（ヘッダーとタブを隠す）</button>
+        <span>本日目標舟数＝発注書（または数量変更）＋ 生産者予定　／　現在合計舟数＝前日ストック＋現在掘り数＋生産者</span>
+        <span class="fn-status" id="fn-status"></span>
+      </div>
+    </div>
+  </div><!-- /view-funes -->
 
 
 </div>
@@ -938,8 +1099,8 @@
   // 中央のプレビューをタップ → 「配置図」タブへ切り替え（旧モーダルの置き換え）
   function openLayoutModal(){ switchView('haichi'); }
 
-  /* ===== 画面切り替え（電子黒板／本日荷造り／配置図／圃場／生産者） ===== */
-  const VIEW_NAMES = ['board','nizukuri','haichi','yohaichi','hojo','seisan'];
+  /* ===== 画面切り替え（電子黒板／本日荷造り／配置図／圃場／生産者／舟数モニター） ===== */
+  const VIEW_NAMES = ['board','nizukuri','haichi','yohaichi','hojo','seisan','funes'];
   function switchView(name){
     VIEW_NAMES.forEach(function(v){
       var view = document.getElementById('view-'+v);
@@ -951,8 +1112,22 @@
     if(name==='yohaichi'){ planOnOpen(); planRefitFrame_(); }   // 🔮 配置図（予測）
     if(name==='hojo')   hojoOnOpen();
     if(name==='seisan' && typeof seisanOnOpen==='function') seisanOnOpen();
+    if(name==='funes'  && typeof fnOnOpen==='function') fnOnOpen();   // ⑨ 舟数モニター
     fitBoard();   // ⑦ ビューが変わると高さが変わるので1画面に合わせ直す
   }
+  // ⑨ もう1台の液晶は「index.html#funes」で開くと、起動時から舟数モニターが出る。
+  //    「#funes-kiosk」なら大画面モード（ヘッダー・タブを隠す）で開く。
+  function applyViewHash_(){
+    var h = String(location.hash||'').replace(/^#/,'').toLowerCase();
+    if(!h) return;
+    var kiosk = /-kiosk$/.test(h);
+    var v = h.replace(/-kiosk$/,'');
+    if(VIEW_NAMES.indexOf(v) < 0) return;
+    switchView(v);
+    if(kiosk && typeof fnKiosk==='function') fnKiosk(true);
+  }
+  window.addEventListener('DOMContentLoaded', applyViewHash_);
+  window.addEventListener('hashchange', applyViewHash_);
   // 配置図(iframe)は自分の大きさが確定してから中身を合わせ直す必要がある。タブ切替直後は
   // レイアウトが未確定で小さく描かれることがあるので、少し遅らせて数回リフィットを促す。
   function haichiRefitFrame_(){
@@ -1028,7 +1203,9 @@
         b.style.transform = 'translateX(-50%) scale(' + s + ')';
         spacer.style.height = (bh * s) + 'px';   // スクロールできるよう縦の場所を確保
       } else {
-        s = Math.min(sW, (availH - pad) / bh, 1); // 設計サイズ以上には拡大しない
+        // ⑨ 舟数モニターの大画面モードだけは、遠くから見るので設計サイズより大きくしてよい（画面いっぱいまで）
+        var maxS = document.body.classList.contains('kiosk') ? 2 : 1;
+        s = Math.min(sW, (availH - pad) / bh, maxS); // 通常は設計サイズ以上には拡大しない
         if(!(s > 0) || !isFinite(s)) s = 1;
         document.body.style.overflow = 'hidden';
         b.style.transform = 'translateX(-50%) scale(' + s + ')';
@@ -1498,7 +1675,7 @@
   function nzDayEnsure_(){
     NZS.day = NZS.day || {};
     _nzsPatch.day = _nzsPatch.day || {};
-    ['targetOvr','amSnap','offZones','absent','busy','plan'].forEach(function(k){
+    ['targetOvr','amSnap','offZones','absent','busy','plan','ampmOvr','funeStock','seisanPlan'].forEach(function(k){
       NZS.day[k] = NZS.day[k] || {};
       _nzsPatch.day[k] = _nzsPatch.day[k] || {};   // 後から増えたセクションでも必ず器を用意する
     });
@@ -1512,14 +1689,30 @@
     try{ var ab=JSON.parse(localStorage.getItem('haichi_absent_'+d)||'null'); if(ab && typeof ab==='object') NZS.day.absent[d]=ab; }catch(e){}   // ⑥ 出勤チェックを外した人
     try{ var bz=JSON.parse(localStorage.getItem('busy_check')||'null'); if(bz && typeof bz==='object') NZS.day.busy=Object.assign({}, bz, NZS.day.busy); }catch(e){}   // ⑧ 繁忙期の再確認記録
     try{ var h=localStorage.getItem('help_target_end'); if(h) NZS.day.helpEnd=h; }catch(e){}
+    // ② 午前・午後の手入力（自動反映を上書きした分）
+    try{ var mo=JSON.parse(localStorage.getItem('ampm_manual_'+d)||'null'); if(mo && typeof mo==='object') NZS.day.ampmOvr[d]=mo; }catch(e){}
+    // ⑨ 舟数モニター：前日ストック／生産者予定
+    try{ var st=localStorage.getItem('fn_stock_'+d); if(st!=null && st!=='') NZS.day.funeStock[d]=Number(st)||0; }catch(e){}
+    try{ var sp=localStorage.getItem('fn_seisan_plan_'+d); if(sp!=null && sp!=='') NZS.day.seisanPlan[d]=Number(sp)||0; }catch(e){}
   }
-  function nzDayHasLocal_(){ nzDayEnsure_(); var d=nzDayKey_(); return (NZS.day.targetOvr[d]!=null) || !!NZS.day.amSnap[d] || !!NZS.day.offZones[d] || !!NZS.day.absent[d] || !!(NZS.day.busy && Object.keys(NZS.day.busy).length) || (NZS.day.helpEnd!=null && NZS.day.helpEnd!==''); }
+  function nzDayHasLocal_(){ nzDayEnsure_(); var d=nzDayKey_(); return (NZS.day.targetOvr[d]!=null) || !!NZS.day.amSnap[d] || !!NZS.day.offZones[d] || !!NZS.day.absent[d] || !!(NZS.day.busy && Object.keys(NZS.day.busy).length) || (NZS.day.helpEnd!=null && NZS.day.helpEnd!=='') || !!NZS.day.ampmOvr[d] || (NZS.day.funeStock[d]!=null) || (NZS.day.seisanPlan[d]!=null); }
   // クラウド空のときに送る種（現在の NZS.day を丸ごと）
-  function nzDaySeed_(){ nzDayEnsure_(); var s={ targetOvr:Object.assign({},NZS.day.targetOvr), amSnap:JSON.parse(JSON.stringify(NZS.day.amSnap)), offZones:JSON.parse(JSON.stringify(NZS.day.offZones)), absent:JSON.parse(JSON.stringify(NZS.day.absent||{})), busy:JSON.parse(JSON.stringify(NZS.day.busy||{})), plan:JSON.parse(JSON.stringify(NZS.day.plan||{})) }; if(NZS.day.helpEnd!=null && NZS.day.helpEnd!=='') s.helpEnd=NZS.day.helpEnd; return s; }
+  function nzDaySeed_(){ nzDayEnsure_(); var s={ targetOvr:Object.assign({},NZS.day.targetOvr), amSnap:JSON.parse(JSON.stringify(NZS.day.amSnap)), offZones:JSON.parse(JSON.stringify(NZS.day.offZones)), absent:JSON.parse(JSON.stringify(NZS.day.absent||{})), busy:JSON.parse(JSON.stringify(NZS.day.busy||{})), plan:JSON.parse(JSON.stringify(NZS.day.plan||{})), ampmOvr:JSON.parse(JSON.stringify(NZS.day.ampmOvr||{})), funeStock:Object.assign({},NZS.day.funeStock), seisanPlan:Object.assign({},NZS.day.seisanPlan) }; if(NZS.day.helpEnd!=null && NZS.day.helpEnd!=='') s.helpEnd=NZS.day.helpEnd; return s; }
   // ---- 書き込み（NZS.day更新＋パッチ＋クラウド送信予約）----
   function nzDaySetTargetOvr_(v){ nzDayEnsure_(); var d=nzDayKey_(); if(v==null){ delete NZS.day.targetOvr[d]; _nzsPatch.day.targetOvr[d]=null; } else { NZS.day.targetOvr[d]=Number(v)||0; _nzsPatch.day.targetOvr[d]=Number(v)||0; } nzStateScheduleSave(); }
   function nzDaySyncAmSnap_(funes,kg,at,cs,all){ nzDayEnsure_(); var d=nzDayKey_(); var snap={funes:funes,kg:kg,at:at,cs:Number(cs)||0,all:(all!=null?Number(all):(Number(kg)||0)+(Number(cs)||0))}; NZS.day.amSnap[d]=snap; _nzsPatch.day.amSnap[d]=snap; nzStateScheduleSave(); }
   function nzDaySyncOffZones_(off){ nzDayEnsure_(); var d=nzDayKey_(); var o=Object.assign({},off||{}); NZS.day.offZones[d]=o; _nzsPatch.day.offZones[d]=o; nzStateScheduleSave(); }
+  // ② 午前・午後の手入力（{funes:{am,pm}, kg:{am,pm}, cs:{am,pm}}）。空オブジェクトなら「自動に戻す」＝削除。
+  function nzDaySyncAmpmOvr_(ovr){
+    nzDayEnsure_(); var d=nzDayKey_();
+    var o = (ovr && Object.keys(ovr).length) ? JSON.parse(JSON.stringify(ovr)) : null;
+    if(o){ NZS.day.ampmOvr[d]=o; _nzsPatch.day.ampmOvr[d]=o; }
+    else { delete NZS.day.ampmOvr[d]; _nzsPatch.day.ampmOvr[d]=null; }
+    nzStateScheduleSave();
+  }
+  // ⑨ 舟数モニター：前日ストック／生産者予定（当日限り・全PC共有）
+  function nzDaySetFuneStock_(v){ nzDayEnsure_(); var d=nzDayKey_(); if(v==null){ delete NZS.day.funeStock[d]; _nzsPatch.day.funeStock[d]=null; } else { NZS.day.funeStock[d]=Number(v)||0; _nzsPatch.day.funeStock[d]=Number(v)||0; } nzStateScheduleSave(); }
+  function nzDaySetSeisanPlan_(v){ nzDayEnsure_(); var d=nzDayKey_(); if(v==null){ delete NZS.day.seisanPlan[d]; _nzsPatch.day.seisanPlan[d]=null; } else { NZS.day.seisanPlan[d]=Number(v)||0; _nzsPatch.day.seisanPlan[d]=Number(v)||0; } nzStateScheduleSave(); }
   function nzDaySetHelpEnd_(v){ nzDayEnsure_(); NZS.day.helpEnd=v||''; _nzsPatch.day.helpEnd=v||''; nzStateScheduleSave(); }
   // ⑥ 配置図で「出勤」チェックを外した人（当日限り）。{氏名:true} を全PC共有。
   function nzDaySyncAbsent_(map){ nzDayEnsure_(); var d=nzDayKey_(); var m=Object.assign({},map||{}); NZS.day.absent[d]=m; _nzsPatch.day.absent[d]=m; try{ localStorage.setItem('haichi_absent_'+d, JSON.stringify(m)); }catch(e){} nzStateScheduleSave(); }
@@ -1578,6 +1771,23 @@
     }
     // ⑥ ⑧ 繁忙期の再確認記録 → 上部アラート帯を出し分け
     if(day.busy){ try{ localStorage.setItem('busy_check', JSON.stringify(day.busy)); }catch(e){} if(typeof refreshAlertBar==='function') refreshAlertBar(); }
+    // ⑧ ② 午前・午後の手入力（他PCで入れ直した分をこのPCにも反映）
+    if(day.ampmOvr){
+      var mo = day.ampmOvr[dk] || null;
+      if(mo){ try{ localStorage.setItem('ampm_manual_'+dk, JSON.stringify(mo)); }catch(e){} }
+      else  { try{ localStorage.removeItem('ampm_manual_'+dk); }catch(e){} }
+      if(typeof updateJissekiFromOps==='function') updateJissekiFromOps();
+    }
+    // ⑨ 舟数モニター：前日ストック／生産者予定
+    if(day.funeStock && day.funeStock[dk]!=null){
+      try{ localStorage.setItem('fn_stock_'+dk, String(Number(day.funeStock[dk])||0)); }catch(e){}
+      if(typeof fnRender==='function') fnRender();
+    }
+    if(day.seisanPlan && day.seisanPlan[dk]!=null){
+      try{ localStorage.setItem('fn_seisan_plan_'+dk, String(Number(day.seisanPlan[dk])||0)); }catch(e){}
+      if(typeof haichiRefreshTargets_==='function') haichiRefreshTargets_();
+      if(typeof fnRender==='function') fnRender();
+    }
   }
 
   // ---- 読み取り（すべて NZS を見る）----
@@ -1637,7 +1847,7 @@
   }
 
   // ---- クラウド同期（保存はfetch POST・取得はJSONP。※httpsなのでfetchが使える）----
-  function nzDayPatchEmpty_(){ var dp=_nzsPatch.day||{}; return ['targetOvr','amSnap','offZones','absent','busy','plan'].every(function(k){ return !Object.keys(dp[k]||{}).length; }) && !('helpEnd' in dp); }
+  function nzDayPatchEmpty_(){ var dp=_nzsPatch.day||{}; return ['targetOvr','amSnap','offZones','absent','busy','plan','ampmOvr','funeStock','seisanPlan'].every(function(k){ return !Object.keys(dp[k]||{}).length; }) && !('helpEnd' in dp); }
   function nzPatchEmpty_(){ return !Object.keys(_nzsPatch.status).length && !Object.keys(_nzsPatch.prod).length && !Object.keys(_nzsPatch.prevOvr).length && nzDayPatchEmpty_(); }
   function nzStateScheduleSave(){
     if(!CENTER_ENDPOINT) return;      // 未接続ならローカル控えのみ
@@ -1899,6 +2109,7 @@
     var tot=HOJO.fields.reduce(function(a,f){return a+(Number(f.funes)||0);},0);
     var el=document.getElementById('hojo-total'); if(el) el.textContent=tot.toLocaleString('ja-JP');
     if(typeof updateJissekiFromOps==='function') updateJissekiFromOps();   // 圃場を増減したら本日実績（舟数・歩留まり）へ即反映
+    if(typeof fnRender==='function') fnRender();                            // ⑨ 舟数モニターの「現在掘り数」へ即反映
   }
   function hojoRender(){
     var wrap=document.getElementById('hojo-list'); if(!wrap) return;
@@ -2057,6 +2268,7 @@
     seisanRenderTotals();
     try{ if(typeof haichiRefreshTargets_==='function') haichiRefreshTargets_(); }catch(e){}
     try{ if(typeof updateJissekiFromOps==='function') updateJissekiFromOps(); }catch(e){}
+    try{ if(typeof fnRender==='function') fnRender(); }catch(e){}   // ⑨ 舟数モニターの「生産者」へ即反映
   }
   function seisanRenderTotals(){
     var Tmain=0, Tc=0, Ts=0, Tcs=0;
@@ -2176,6 +2388,103 @@
         .catch(function(){ seisanSetStatus('🟡 保存失敗（ローカルには保持）','#a76a00'); });
     },700);
   }
+
+  /* ===== ⑨ 舟数モニター（もう1台の液晶用） =====
+     圃場（畑）と生産者から持ってきた「いまの舟数」を、遠くからでも読める大きさで出すシート。
+       本日目標舟数 ＝ 発注書（または当日の数量変更） ＋ 生産者予定
+       現在合計舟数 ＝ 前日ストック ＋ 現在掘り数（圃場タブの合計） ＋ 生産者（生産者タブの収穫舟数合計）
+     ・前日ストック／生産者予定 は手入力（当日限り）。localStorage＋クラウド(day)で全PC共有。
+     ・現在掘り数／生産者 は圃場タブ・生産者タブの入力から自動。ここでは編集しない。 */
+  function fnDateKey_(){ var t=new Date(); return t.getFullYear()+'-'+(t.getMonth()+1)+'-'+t.getDate(); }
+  function fnStockKey_(){ return 'fn_stock_' + fnDateKey_(); }
+  function fnPlanKey_(){  return 'fn_seisan_plan_' + fnDateKey_(); }
+  function fnGetStock_(){ try{ var v=localStorage.getItem(fnStockKey_()); return (v!=null && v!=='') ? (Number(v)||0) : 0; }catch(e){ return 0; } }
+  // 生産者予定：未入力なら null（＝実績をそのまま予定として使う）
+  function fnGetSeisanPlan_(){ try{ var v=localStorage.getItem(fnPlanKey_()); return (v!=null && v!=='') ? (Number(v)||0) : null; }catch(e){ return null; } }
+  function fnSetStock(raw){
+    var n = Math.max(0, Math.round(Number(raw)||0));
+    try{ localStorage.setItem(fnStockKey_(), String(n)); }catch(e){}
+    if(typeof nzDaySetFuneStock_==='function') nzDaySetFuneStock_(n);   // ★ 全PC共有（クラウド）へ
+    fnRender();
+  }
+  function fnSetSeisanPlan(raw){
+    var s = String(raw==null?'':raw).trim();
+    if(s===''){
+      try{ localStorage.removeItem(fnPlanKey_()); }catch(e){}
+      if(typeof nzDaySetSeisanPlan_==='function') nzDaySetSeisanPlan_(null);   // 空欄＝予定なし（実績を使う）
+    } else {
+      var n = Math.max(0, Math.round(Number(s)||0));
+      try{ localStorage.setItem(fnPlanKey_(), String(n)); }catch(e){}
+      if(typeof nzDaySetSeisanPlan_==='function') nzDaySetSeisanPlan_(n);
+    }
+    if(typeof haichiRefreshTargets_==='function') haichiRefreshTargets_();   // 板の「本日の荷造り舟数」も予定に合わせる
+    fnRender();
+  }
+  function fnPutInput_(id, val){
+    var e=document.getElementById(id); if(!e) return;
+    if(document.activeElement === e) return;   // 打っている最中は触らない
+    e.value = (val==null) ? '' : String(val);
+  }
+  function fnNum_(n){ return Number(n||0).toLocaleString('ja-JP'); }
+  function fnRender(){
+    if(!document.getElementById('fn-now')) return;
+    var stock = fnGetStock_();
+    var hori  = (typeof opsTodayHojoFunes==='function') ? opsTodayHojoFunes() : 0;      // 現在掘り数＝圃場タブの合計
+    var sei   = (typeof seisanFunesForBoard==='function') ? seisanFunesForBoard() : 0;  // 生産者＝収穫舟数の合計（実績）
+    var plan  = fnGetSeisanPlan_();
+    var now   = stock + hori + sei;
+    var tgtSet = (typeof boardTargetIsSet==='function') ? boardTargetIsSet() : false;
+    var tgt    = (typeof boardTargetTotal==='function') ? boardTargetTotal() : 0;
+
+    haichiSetText_('fn-now',  fnNum_(now));
+    haichiSetText_('fn-target', tgtSet ? fnNum_(tgt) : '--');
+    haichiSetText_('fn-hori', fnNum_(hori));
+    haichiSetText_('fn-sei',  fnNum_(sei));
+    fnPutInput_('fn-stock', stock);
+    fnPutInput_('fn-seiyo', plan);
+
+    // のこり舟数＋進み具合のバー（目標が未取得のときは出さない）
+    var bar = document.getElementById('fn-bar');
+    var rest = document.getElementById('fn-rest');
+    if(!tgtSet || tgt <= 0){
+      if(bar){ bar.querySelector('i').style.width='0%'; bar.classList.remove('over'); }
+      if(rest){ rest.classList.remove('done'); rest.innerHTML='のこり <b>--</b> 舟'; }
+    } else {
+      var pct = Math.max(0, Math.min(100, now / tgt * 100));
+      if(bar){ bar.querySelector('i').style.width = pct + '%'; bar.classList.toggle('over', now >= tgt); }
+      var diff = tgt - now;
+      if(rest){
+        rest.classList.toggle('done', diff <= 0);
+        rest.innerHTML = (diff > 0)
+          ? ('のこり <b>' + fnNum_(diff) + '</b> 舟')
+          : ('✅ 目標達成' + (diff < 0 ? '（＋' + fnNum_(-diff) + ' 舟）' : ''));
+      }
+    }
+    var st = document.getElementById('fn-status');
+    if(st){ var t=new Date(); st.textContent = '更新 ' + ('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2); }
+  }
+  function fnOnOpen(){
+    if(typeof hojoInit==='function')   hojoInit();     // 圃場・生産者は開いていなくても読み込む
+    if(typeof seisanInit==='function') seisanInit();
+    fnRender();
+  }
+  // ⑨ 大画面モード＝ヘッダー・タブを隠して舟数だけを大きく出す（もう1台の液晶用）
+  function fnKiosk(on){
+    document.body.classList.toggle('kiosk', !!on);
+    try{ localStorage.setItem('fn_kiosk', on ? '1' : ''); }catch(e){}
+    if(on) switchView('funes');
+    fitBoard();
+  }
+  window.addEventListener('DOMContentLoaded', function(){
+    var s=document.getElementById('fn-stock');
+    if(s){ s.addEventListener('change', function(){ fnSetStock(s.value); });
+           s.addEventListener('keydown', function(ev){ if(ev.key==='Enter') s.blur(); }); }
+    var p=document.getElementById('fn-seiyo');
+    if(p){ p.addEventListener('change', function(){ fnSetSeisanPlan(p.value); });
+           p.addEventListener('keydown', function(ev){ if(ev.key==='Enter') p.blur(); }); }
+    try{ if(localStorage.getItem('fn_kiosk')==='1') document.body.classList.add('kiosk'); }catch(e){}
+    fnRender();
+  });
 
   /* CENTER_HAICHI_LINK_START */
   /* ===== 配置図＆シフトのライブ連携（力量表＝?type=haichi／本日出勤者＝?type=shift） ===== */
@@ -2520,14 +2829,18 @@
   }
   // ③ 生産者の収穫舟数（板へ加算する値）。SEISANが未初期化でも0で安全に返す。
   function seisanFunesForBoard(){ try{ return (typeof seisanTotalFunes==='function') ? seisanTotalFunes() : 0; }catch(e){ return 0; } }
-  // 本日の荷造り舟数（予定）＝ベース（発注書 or 数量変更） ＋ 生産者の収穫舟数
+  // ⑨ 生産者「予定」舟数＝舟数モニターで手入力した予定。未入力なら実績（収穫舟数の合計）をそのまま使う。
+  //    ＝予定を入れていない日は、これまでどおり実績が予定として板に乗る（表示が変わらない）。
+  function seisanPlanFunes(){ var v=fnGetSeisanPlan_(); return (v!=null) ? v : seisanFunesForBoard(); }
+  // 本日の荷造り舟数（予定）＝ベース（発注書 or 数量変更） ＋ 生産者の予定舟数
   function boardTargetBase(){ return (boardData.targetFunes!=null) ? boardData.targetFunes : 0; }
-  function boardTargetTotal(){ return boardTargetBase() + seisanFunesForBoard(); }
-  function boardTargetIsSet(){ return (boardData.targetFunes!=null) || (seisanFunesForBoard() > 0); }
+  function boardTargetTotal(){ return boardTargetBase() + seisanPlanFunes(); }
+  function boardTargetIsSet(){ return (boardData.targetFunes!=null) || (seisanPlanFunes() > 0); }
   // ③ 本日の荷造り舟数（予定）と 荷造りkg（予定）を、生産者の収穫舟数を含めて再表示
   function haichiRefreshTargets_(){
     haichiSetText_('t-target-funes', boardTargetIsSet() ? haichiNum_(boardTargetTotal()) : '--');
     updateTargetKg();
+    if(typeof fnRender==='function') fnRender();   // ⑨ 舟数モニターも一緒に更新
     if(typeof haichiCalcFinish==='function') haichiCalcFinish();
   }
   // 本日実績（現時点）＝圃場から持ってきた舟数（荷造り舟数）／本日荷造りの作った分の合計kg／歩留まり(kg÷舟数)
@@ -2565,10 +2878,22 @@
       });
     }catch(e){}
     // ① 生産者の㎏はセンターの荷造り実績ではないので差し引く（0未満にはしない）
+    //   ＝分子（C・S㎏）からも分母（荷造り㎏）からも、生産者ぶんを引いた「センターだけの実績」にそろえる。
     var sz  = seisanKgForBoard_();
-    var kg  = Math.max(0, (all - cs) - sz.main);
-    var cs2 = Math.max(0, cs - sz.cs);
-    return { all:kg + cs2, cs:cs2, kg:kg, seisan:sz.total, rawAll:all };
+    var kg  = Math.max(0, (all - cs) - sz.main);   // 荷造り㎏（C・Sを除く。生産者の洗い・土付き・半端を差引）
+    var cs2 = Math.max(0, cs - sz.cs);             // C・S㎏（生産者のC・Sを差引）
+    return { all:kg + cs2, cs:cs2, kg:kg, seisan:sz.total, rawAll:all, seisanCs:sz.cs, rawCs:cs };
+  }
+  /* ===== ① 加工率 ＝ C・S㎏数 ÷（荷造り㎏数 ＋ C・S㎏数 − 生産者C・S㎏数） =====
+     分子・分母とも「生産者ぶんを差し引いた値」でそろえる（＝センターが加工に回した割合）。
+       C・S㎏数     … p.cs（画面の「荷造りCSキロ」。生産者のC・Sを差引済み）
+       荷造り㎏数   … p.kg（画面の「荷造りkg（実績）」。C・Sと生産者ぶんを除いた分）
+       生産者C・S㎏ … すでに p.cs から引いてあるので、ここで二重に引かない
+     ※ 引数は「そろえたあとの値」を受け取る。分母が0のときは null（＝「--」表示）。 */
+  function kakouRitsu_(csKg, nizukuriKg){
+    var c = Number(csKg)||0, k = Number(nizukuriKg)||0;
+    var bunbo = k + c;                       // ＝荷造り㎏ ＋ C・S㎏（どちらも生産者ぶん差引済み）
+    return (bunbo > 0) ? (c / bunbo * 100) : null;
   }
   function opsTodayMadeKg(){ return opsTodayMadeKgParts().kg; }   // 互換：荷造りkg（CSを除く）
   // ④ 本日実績の荷造り舟数＝圃場から持ってきた舟数だけ（生産者の収穫舟数は実績に含めない）
@@ -2584,16 +2909,22 @@
     haichiSetText_('j-kg-note', '作った分の合計（CS・生産者分を除く）' + (p.seisan > 0 ? '　生産者 −' + haichiNum_(p.seisan) + 'kg' : ''));
     var bud = funes > 0 ? (p.kg / funes) : null;          // 歩留まり＝荷造りkg（CS除く） ÷ 舟数
     haichiSetText_('j-budomari', bud != null ? haichiNum_(bud, 1) : '--');
-    var kak = p.all > 0 ? (p.cs / p.all * 100) : null;    // 加工率＝CSキロ ÷ 全ての荷造りキロ
+    var kak = kakouRitsu_(p.cs, p.kg);                    // ① 加工率＝C・S㎏ ÷（荷造り㎏＋C・S㎏−生産者C・S㎏）
     haichiSetText_('j-kakou', kak != null ? haichiNum_(kak, 1) : '--');
-    updateAmPm(funes, p.kg, p.cs, p.all);   // ⑤ 午前・午後の内訳
+    // ① 生産者C・Sを差し引いたときは、いくら引いたかを式のところに小さく出す（現場で検算できるように）
+    haichiSetText_('j-kakou-note', 'C・S㎏ ÷（荷造り㎏＋C・S㎏−生産者C・S㎏）' + (p.seisanCs > 0 ? '　生産者C・S −' + haichiNum_(p.seisanCs, 1) + 'kg' : ''));
+    updateAmPm(funes, p.kg, p.cs);          // ⑤ 午前・午後の内訳
   }
 
-  /* ===== ⑤ 午前・午後の実績内訳 ===== */
-  // 正午（12:00）で自動的に区切る。ボタンで手動区切りも可。
-  //   午前＝境界時点の累計（スナップショット）／午後＝現時点−午前。
-  //   保存＝ localStorage 'ampm_snap_<date>' = { funes, kg }（日付が変われば自動リセット）。
-  function amKey(){ var t=new Date(); return 'ampm_snap_' + t.getFullYear() + '-' + (t.getMonth()+1) + '-' + t.getDate(); }
+  /* ===== ⑤② 午前・午後の実績内訳（自動反映＋手で入れ直せる） =====
+     ・自動：正午（12:00）で自動的に区切る。午前＝正午時点の累計／午後＝現時点−午前。
+       　　　保存＝ localStorage 'ampm_snap_<date>'（日付が変われば自動リセット）。
+     ・手入力：舟数／荷造りkg／C・Sキロ の午前・午後の数字はそのまま入力欄。入れると自動値を上書きする。
+       　　　保存＝ localStorage 'ampm_manual_<date>' ＝ {funes:{am,pm}, kg:{am,pm}, cs:{am,pm}}。
+       　　　空欄にすればその欄だけ自動に戻る。「↺ 午前・午後を自動に戻す」で全部戻る。
+       　　　※ 歩留まり・加工率の午前/午後は、上の3つ（自動または手入力）から必ず計算する。 */
+  function amDateKey_(){ var t=new Date(); return t.getFullYear()+'-'+(t.getMonth()+1)+'-'+t.getDate(); }
+  function amKey(){ return 'ampm_snap_' + amDateKey_(); }
   function amLoadSnap(){ try{ var v=JSON.parse(localStorage.getItem(amKey())); return (v && typeof v.funes==='number') ? v : null; }catch(e){ return null; } }
   // ④ cs/all も一緒に固定（午前・午後の加工率を出すため）。旧データ（cs/all無し）は0扱いで安全。
   function amSaveSnap(funes, kg, cs, all){
@@ -2603,43 +2934,111 @@
     if(typeof nzDaySyncAmSnap_==='function') nzDaySyncAmSnap_(snap.funes, snap.kg, at, snap.cs, snap.all);   // ★ 全PC共有（クラウド）へ
   }
   function amFmt(n){ return (n==null)?'–':haichiNum_(n, (n%1?1:0)); }
-  function amPct(cs, all){ return (all>0) ? amFmt(cs/all*100) : '–'; }
-  function updateAmPm(funes, kg, cs, all){
-    cs = Number(cs)||0; all = (all!=null) ? Number(all) : ((Number(kg)||0)+cs);
-    var now = new Date();
-    var snap = amLoadSnap();
-    // 正午を過ぎて、まだ区切っていなければ、その時点の累計を「午前」として自動固定
-    if(!snap && (now.getHours() > 12 || (now.getHours()===12 && now.getMinutes()>=0))){
-      amSaveSnap(funes, kg, cs, all); snap = amLoadSnap();
-    }
-    var note = document.getElementById('ampm-note');
-    if(snap){
-      var amF = snap.funes, amK = snap.kg, amC = Number(snap.cs)||0, amA = (snap.all!=null?Number(snap.all):(amK+amC));
-      var pmF = Math.max(0, funes - amF), pmK = Math.max(0, kg - amK);
-      var pmC = Math.max(0, cs - amC),    pmA = Math.max(0, all - amA);
-      haichiSetText_('j-funes-am', amFmt(amF)); haichiSetText_('j-funes-pm', amFmt(pmF));
-      haichiSetText_('j-kg-am',    amFmt(amK)); haichiSetText_('j-kg-pm',    amFmt(pmK));
-      haichiSetText_('j-bud-am', amF>0 ? amFmt(amK/amF) : '–');
-      haichiSetText_('j-bud-pm', pmF>0 ? amFmt(pmK/pmF) : '–');
-      haichiSetText_('j-cs-am',  amFmt(amC)); haichiSetText_('j-cs-pm',  amFmt(pmC));
-      haichiSetText_('j-kakou-am', amPct(amC, amA)); haichiSetText_('j-kakou-pm', amPct(pmC, pmA));
-      if(note){ var at=new Date(snap.at||Date.now()); note.textContent='午前は '+('0'+at.getHours()).slice(-2)+':'+('0'+at.getMinutes()).slice(-2)+' 時点で確定。午後＝現在−午前。'; }
-    } else {
-      // まだ区切っていない（午前中）＝すべて午前に進行中
-      haichiSetText_('j-funes-am', amFmt(funes)); haichiSetText_('j-funes-pm', '–');
-      haichiSetText_('j-kg-am',    amFmt(kg));    haichiSetText_('j-kg-pm',    '–');
-      haichiSetText_('j-bud-am', funes>0 ? amFmt(kg/funes) : '–'); haichiSetText_('j-bud-pm', '–');
-      haichiSetText_('j-cs-am',  amFmt(cs)); haichiSetText_('j-cs-pm',  '–');
-      haichiSetText_('j-kakou-am', amPct(cs, all)); haichiSetText_('j-kakou-pm', '–');
-      if(note){ note.textContent='午前・午後は正午で自動的に区切ります（ボタンで手動区切りも可）。'; }
-    }
+
+  /* ---- ② 手入力ぶん（自動値の上書き） ---- */
+  var AMPM_FIELDS = [
+    { m:'funes', id:'j-funes', dec:0 },   // 荷造り舟数
+    { m:'kg',    id:'j-kg',    dec:1 },   // 荷造りkg
+    { m:'cs',    id:'j-cs',    dec:1 }    // 荷造りCSキロ
+  ];
+  function amManualKey_(){ return 'ampm_manual_' + amDateKey_(); }
+  function amLoadManual(){ try{ var v=JSON.parse(localStorage.getItem(amManualKey_())); return (v && typeof v==='object') ? v : {}; }catch(e){ return {}; } }
+  function amSaveManual(o){
+    var clean = {};
+    Object.keys(o||{}).forEach(function(m){
+      var h = o[m] || {}, one = {};
+      ['am','pm'].forEach(function(s){ if(typeof h[s]==='number' && isFinite(h[s])) one[s]=h[s]; });
+      if(Object.keys(one).length) clean[m]=one;
+    });
+    try{
+      if(Object.keys(clean).length) localStorage.setItem(amManualKey_(), JSON.stringify(clean));
+      else localStorage.removeItem(amManualKey_());
+    }catch(e){}
+    if(typeof nzDaySyncAmpmOvr_==='function') nzDaySyncAmpmOvr_(clean);   // ★ 全PC共有（クラウド）へ
+    return clean;
   }
-  // 「午前をここまでにする」＝今の累計を午前として固定
-  function amMarkNow(){
-    var p = opsTodayMadeKgParts();
-    amSaveSnap(jissekiFunesNow(), p.kg, p.cs, p.all);
+  // 入力欄が変わったとき：数字なら上書き、空欄なら自動に戻す
+  function amSetManual(metric, side, raw){
+    var o = amLoadManual();
+    var s = String(raw==null?'':raw).trim();
+    o[metric] = o[metric] || {};
+    if(s===''){ delete o[metric][side]; if(!Object.keys(o[metric]).length) delete o[metric]; }
+    else{
+      var n = Number(s);
+      if(!isFinite(n) || n < 0){ updateJissekiFromOps(); return; }   // 変な値は無視して表示を戻す
+      o[metric][side] = Math.round(n*10)/10;
+    }
+    amSaveManual(o);
     updateJissekiFromOps();
   }
+  // 「↺ 午前・午後を自動に戻す」＝手入力を全部消す
+  function amClearAllManual(){
+    amSaveManual({});
+    updateJissekiFromOps();
+  }
+  // 入力欄へ書き戻す（フォーカス中の欄は、打っている最中に上書きしないよう触らない）
+  function amPutInput_(id, val, isManual){
+    var e = document.getElementById(id); if(!e) return;
+    if(document.activeElement === e) return;
+    e.value = (val==null) ? '' : String(Math.round(val*10)/10);
+    e.classList.toggle('manual', !!isManual);
+  }
+
+  function updateAmPm(funes, kg, cs){
+    cs = Number(cs)||0; kg = Number(kg)||0; funes = Number(funes)||0;
+    var now  = new Date();
+    var snap = amLoadSnap();
+    // 正午を過ぎて、まだ区切っていなければ、その時点の累計を「午前」として自動固定
+    if(!snap && now.getHours() >= 12){
+      amSaveSnap(funes, kg, cs, kg+cs); snap = amLoadSnap();
+    }
+    // --- 自動の午前（正午時点のスナップショット）と、いまの合計 ---
+    var total = { funes:funes, kg:kg, cs:cs };
+    var autoAm = snap
+      ? { funes:Number(snap.funes)||0, kg:Number(snap.kg)||0, cs:Number(snap.cs)||0 }
+      : null;   // まだ区切っていない（午前中）＝すべて午前に進行中、午後はまだ「–」
+    // --- 手入力があればそれを優先。午後の自動値は「合計 − 午前（手入力があればその値）」＝足すと合計に戻る ---
+    var man = amLoadManual(), hasManual = false, eff = {};
+    AMPM_FIELDS.forEach(function(f){
+      var mo = man[f.m] || {};
+      var am = (typeof mo.am==='number') ? mo.am : (autoAm ? autoAm[f.m] : total[f.m]);
+      var pmAuto = autoAm ? Math.max(0, total[f.m] - am) : null;
+      var pm = (typeof mo.pm==='number') ? mo.pm : pmAuto;
+      eff[f.m] = { am:am, pm:pm };
+      ['am','pm'].forEach(function(s){
+        var isMan = (typeof mo[s]==='number'); if(isMan) hasManual = true;
+        amPutInput_(f.id+'-'+s, eff[f.m][s], isMan);
+      });
+    });
+    // --- 歩留まり・加工率は、上の3つ（自動 or 手入力）から必ず計算する ---
+    ['am','pm'].forEach(function(s){
+      var F=eff.funes[s], K=eff.kg[s], C=eff.cs[s];
+      var bud = (F!=null && K!=null && F>0) ? (K/F) : null;
+      haichiSetText_('j-bud-'+s, bud!=null ? amFmt(bud) : '–');
+      var kak = (K!=null && C!=null) ? kakouRitsu_(C, K) : null;   // ① 同じ式で午前・午後も出す
+      haichiSetText_('j-kakou-'+s, kak!=null ? amFmt(kak) : '–');
+    });
+    // --- 説明文＆「自動に戻す」ボタンの出し分け ---
+    var note = document.getElementById('ampm-note');
+    if(note){
+      var base = snap
+        ? ('午前は '+('0'+new Date(snap.at||Date.now()).getHours()).slice(-2)+':'+('0'+new Date(snap.at||Date.now()).getMinutes()).slice(-2)+' 時点で自動確定。午後＝現在−午前。')
+        : '午前・午後は正午で自動的に区切って自動反映します。';
+      note.textContent = base + '　数字は手で入れ直せます（空欄にするとその欄だけ自動に戻ります）。'
+        + (hasManual ? '　※いま手入力で上書き中の欄があります（黄色）。' : '');
+    }
+    var rb = document.getElementById('ampm-reset'); if(rb) rb.style.display = hasManual ? '' : 'none';
+  }
+  // ② 午前・午後の入力欄を配線（change＝確定時。打っている最中は自動更新で邪魔しない）
+  window.addEventListener('DOMContentLoaded', function(){
+    AMPM_FIELDS.forEach(function(f){
+      ['am','pm'].forEach(function(s){
+        var e=document.getElementById(f.id+'-'+s); if(!e) return;
+        e.addEventListener('change', function(){ amSetManual(f.m, s, e.value); });
+        e.addEventListener('keydown', function(ev){ if(ev.key==='Enter') e.blur(); });
+      });
+    });
+  });
   // ② 数量変更（当日）＝上の「本日の荷造り舟数」の予定を上書き（当日限り・localStorage保存）
   function qtyTodayKey(){ var t=new Date(); return 'board_target_ovr_' + t.getFullYear() + '-' + (t.getMonth()+1) + '-' + t.getDate(); }
   function qtyLoadOverride(){ try{ var v=localStorage.getItem(qtyTodayKey()); return (v!=null && v!=='') ? Number(v) : null; }catch(e){ return null; } }
