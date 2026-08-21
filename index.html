@@ -806,7 +806,7 @@
       <div class="target-cell">
         <div class="lbl">終了目標時刻</div>
         <div class="finish-est" id="t-finish">--</div>
-        <div class="sub">本日の舟数・今日のメンバーから算出（7:00開始）</div>
+        <div class="sub" id="t-finish-sub">本日の舟数・今日のメンバーから算出</div>
       </div>
     </div>
   </div>
@@ -2901,19 +2901,22 @@
   function updateJissekiFromOps(){
     var funes = jissekiFunesNow();          // 荷造り舟数（実績）＝圃場から持ってきた舟数
     var p     = opsTodayMadeKgParts();      // { all:全荷造りkg, cs:CSキロ, kg:荷造りkg（CS除く） }
-    boardData.jissekiFunes = funes;
-    haichiSetText_('j-funes', haichiNum_(funes));
-    haichiSetText_('j-kg',    haichiNum_(p.kg));
-    haichiSetText_('j-cs-kg', haichiNum_(p.cs));
+    // ⑤② 先に午前・午後（自動 or 手入力）を確定させる。手で入れた数字があれば
+    //     「午前＋午後」を現時点の実績（大きい数字）にも反映する＝入れた加工ぶんが加工率に出る。
+    var ap    = updateAmPm(funes, p.kg, p.cs);
+    var tFune = ap.funes.total, tKg = ap.kg.total, tCs = ap.cs.total;
+    boardData.jissekiFunes = tFune;
+    haichiSetText_('j-funes', haichiNum_(tFune));
+    haichiSetText_('j-kg',    haichiNum_(tKg));
+    haichiSetText_('j-cs-kg', haichiNum_(tCs));
     // ① 生産者ぶんを差し引いたときは、いくら差し引いたかを小さく出す
     haichiSetText_('j-kg-note', '作った分の合計（CS・生産者分を除く）' + (p.seisan > 0 ? '　生産者 −' + haichiNum_(p.seisan) + 'kg' : ''));
-    var bud = funes > 0 ? (p.kg / funes) : null;          // 歩留まり＝荷造りkg（CS除く） ÷ 舟数
+    var bud = tFune > 0 ? (tKg / tFune) : null;           // 歩留まり＝荷造りkg（CS除く） ÷ 舟数
     haichiSetText_('j-budomari', bud != null ? haichiNum_(bud, 1) : '--');
-    var kak = kakouRitsu_(p.cs, p.kg);                    // ① 加工率＝C・S㎏ ÷（荷造り㎏＋C・S㎏−生産者C・S㎏）
+    var kak = kakouRitsu_(tCs, tKg);                      // ① 加工率＝C・S㎏ ÷（荷造り㎏＋C・S㎏−生産者C・S㎏）
     haichiSetText_('j-kakou', kak != null ? haichiNum_(kak, 1) : '--');
     // ① 生産者C・Sを差し引いたときは、いくら引いたかを式のところに小さく出す（現場で検算できるように）
     haichiSetText_('j-kakou-note', 'C・S㎏ ÷（荷造り㎏＋C・S㎏−生産者C・S㎏）' + (p.seisanCs > 0 ? '　生産者C・S −' + haichiNum_(p.seisanCs, 1) + 'kg' : ''));
-    updateAmPm(funes, p.kg, p.cs);          // ⑤ 午前・午後の内訳
   }
 
   /* ===== ⑤② 午前・午後の実績内訳（自動反映＋手で入れ直せる） =====
@@ -3004,7 +3007,9 @@
       var am = (typeof mo.am==='number') ? mo.am : (autoAm ? autoAm[f.m] : total[f.m]);
       var pmAuto = autoAm ? Math.max(0, total[f.m] - am) : null;
       var pm = (typeof mo.pm==='number') ? mo.pm : pmAuto;
-      eff[f.m] = { am:am, pm:pm };
+      // ★ その項目の「現時点の合計」＝午前＋午後。手入力があればそれがそのまま合計になる。
+      //   自動のままなら pmAuto＝合計−午前 なので、足すと元の合計に戻る（表示は変わらない）。
+      eff[f.m] = { am:am, pm:pm, total:(pm!=null ? (am + pm) : am) };
       ['am','pm'].forEach(function(s){
         var isMan = (typeof mo[s]==='number'); if(isMan) hasManual = true;
         amPutInput_(f.id+'-'+s, eff[f.m][s], isMan);
@@ -3025,9 +3030,11 @@
         ? ('午前は '+('0'+new Date(snap.at||Date.now()).getHours()).slice(-2)+':'+('0'+new Date(snap.at||Date.now()).getMinutes()).slice(-2)+' 時点で自動確定。午後＝現在−午前。')
         : '午前・午後は正午で自動的に区切って自動反映します。';
       note.textContent = base + '　数字は手で入れ直せます（空欄にするとその欄だけ自動に戻ります）。'
+        + '　手で入れた数字は上の合計（舟数・荷造りkg・CSキロ）にも反映します。'
         + (hasManual ? '　※いま手入力で上書き中の欄があります（黄色）。' : '');
     }
     var rb = document.getElementById('ampm-reset'); if(rb) rb.style.display = hasManual ? '' : 'none';
+    return eff;   // ★ { funes:{am,pm,total}, kg:{...}, cs:{...} } を呼び元（updateJissekiFromOps）へ返す
   }
   // ② 午前・午後の入力欄を配線（change＝確定時。打っている最中は自動更新で邪魔しない）
   window.addEventListener('DOMContentLoaded', function(){
@@ -3073,10 +3080,40 @@
     haichiSetText_('t-staff-am', am!=null ? haichiNum_(am) : (now!=null ? haichiNum_(now) : '--'));
     haichiSetText_('t-staff-pm', pm!=null ? haichiNum_(pm) : (now!=null ? haichiNum_(now) : '--'));
   }
-  // ① 終了目標時刻：作業開始(7:00)から、本日の総舟数を「今日のメンバー(はつり人数)×2舟/時」で
-  //    処理しきる時刻（休憩は自動で飛ばす）。＝残り舟数ではなく“今日のメンバーと舟数”からの予定終了。
-  var WORK_START_MIN = 7*60;   // 作業開始 7:00
-  var WORK_PERIODS = [[420,510],[540,600],[615,720],[780,840],[855,1439]]; // 7:00-8:30/9-10/10:15-12/13-14/14:15-（休憩を除いた作業帯）
+  /* ===== ⑩ 作業時間の設定（終了目標時刻・ヘルプ判定・画面表示は、すべてここだけを見る） =====
+     ★直すのはこの3つ（WORK_START / WORK_END / WORK_BREAKS）だけ。時刻の文字列なので現場と読み合わせできます。
+     ★力量表SSの「作業基準」シートにも“開始時刻”欄があります。必ず同じ値にしてください。
+       （2026-08-21 確認：シート側が入力例の 8:00 のままで、実際の 7:00 と1時間ずれていました。
+         正しいのは 7:00 です。シートの「開始時刻」を 7:00 に直してください。）
+     ① 終了目標時刻＝作業開始から、本日の総舟数を「今日のメンバー(はつり人数)×2舟/時」で
+        処理しきる時刻（休憩は自動で飛ばす）。＝残り舟数ではなく“今日のメンバーと舟数”からの予定終了。 */
+  var WORK_START = '07:00';   // 作業開始
+  var WORK_END   = '23:59';   // 計算上の1日の終わり（ここまでに終わらなければ「本日中は厳しい見込み」）
+  var WORK_BREAKS = [         // 休憩（この時間帯は作業していない扱い）
+    ['08:30','09:00'],   // 朝の休憩
+    ['10:00','10:15'],   // 午前の休憩
+    ['12:00','13:00'],   // 昼休み
+    ['14:00','14:15'],   // 午後の休憩
+  ];
+  function wtMin_(hhmm){ var p=String(hhmm).split(':'); return (Number(p[0])||0)*60 + (Number(p[1])||0); }
+  var WORK_START_MIN = wtMin_(WORK_START);
+  // 上の設定から「休憩を除いた作業帯」を自動で組み立てる（＝従来の WORK_PERIODS と同じ形）
+  var WORK_PERIODS = (function(){
+    var out = [], t = WORK_START_MIN, end = wtMin_(WORK_END);
+    WORK_BREAKS.map(function(b){ return [wtMin_(b[0]), wtMin_(b[1])]; })
+      .sort(function(a,b){ return a[0]-b[0]; })
+      .forEach(function(b){
+        if(b[0] > t) out.push([t, Math.min(b[0], end)]);
+        t = Math.max(t, b[1]);
+      });
+    if(t < end) out.push([t, end]);
+    return out.filter(function(p){ return p[1] > p[0]; });
+  })();
+  // 「終了目標時刻」タイルの説明文も設定から作る（開始時刻を直したら画面の表記も自動で追従する）
+  window.addEventListener('DOMContentLoaded', function(){
+    var e = document.getElementById('t-finish-sub');
+    if(e) e.textContent = '本日の舟数・今日のメンバーから算出（' + WORK_START + '開始）';
+  });
   function haichiFmtMin_(m){ var hh=Math.floor(m/60), mm=Math.round(m-hh*60); if(mm>=60){hh++;mm-=60;} return ('0'+hh).slice(-2)+':'+('0'+mm).slice(-2); }
   function haichiCalcFinish(){
     var el = document.getElementById('t-finish');
