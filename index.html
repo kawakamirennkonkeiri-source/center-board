@@ -402,8 +402,10 @@
     width:100%; font-family:inherit; font-size:20px; font-weight:800; text-align:center;
     padding:2px 2px; border:1px solid var(--grid); border-radius:6px; font-variant-numeric:tabular-nums;
   }
-  .nz-row .qc4 input.q-prev{ border-style:dashed; color:var(--text-secondary); background:#fafafa;}
   .nz-row .qc4 input.q-made{ color:#1c7d1c;}
+  /* ① 過去分（累計の内訳）を日付指定で直す小さな行。日付は横幅が狭いとタップしづらいので縦積みにする */
+  .nz-row .qc4 .prev-fix{ display:flex; flex-direction:column; gap:3px; margin-top:4px;}
+  .nz-row .qc4 .prev-fix input{ width:100%; font-size:12px; font-weight:700; padding:3px 2px; border-style:dashed; color:var(--text-secondary); background:#fafafa;}
 
   /* 状態ピル（押して変更） */
   .nz-status{
@@ -1526,7 +1528,12 @@
           `</div>`+
           `<div class="qc4">`+
             `<div class="qi total"><span class="ql">合計</span><span class="cs">${nzFmtKg(totalCs)}<small>${U}</small></span><span class="qkg">${kg2(totalCs)}</span></div>`+
-            `<div class="qi prev"><span class="ql">累計</span><input class="q-prev" type="number" min="0" step="1" inputmode="numeric" value="${prevCs||''}" placeholder="0" title="${prevTip}"><span class="qkg prev-kg">${kg2(prevCs)}</span></div>`+
+            `<div class="qi prev"><span class="ql">累計</span><span class="cs prev-total" title="${prevTip}">${nzFmtKg(prevCs)}</span><span class="qkg prev-kg">${kg2(prevCs)}</span>`+
+              `<div class="prev-fix" title="過去に作った分を、実際に作った日を選んで直す（同じ日を選べば上書き＝行が増えません）">`+
+                `<input class="q-prev-date" type="date" max="${nzToISO_(nzYesterdayStr())}" value="${nzToISO_(nzYesterdayStr())}">`+
+                `<input class="q-prev-amt" type="number" min="0" step="1" inputmode="numeric" placeholder="0">`+
+              `</div>`+
+            `</div>`+
             `<div class="qi made"><span class="ql">本日</span><input class="q-made" type="number" min="0" step="1" inputmode="numeric" value="${todayCs||''}" placeholder="0"><span class="qkg made-kg">${kg2(todayCs)}</span></div>`+
             `<div class="qi rest${restCs<=0?' done':''}"><span class="ql">のこり</span><span class="cs"><b class="rest-v">${csTxt(restCs)}</b><small>${U}</small></span><span class="qkg rest-kg">${isKg?'':`${restKgTxt(restCs)}<small>kg</small>`}</span></div>`+
           `</div>`+
@@ -1548,27 +1555,44 @@
           if(cb) cb.onclick = (e) => { e.stopPropagation(); nzCarryOver(gi); };
         };
         refreshCarry();
-        // ③ 前日作成（手入力で修正可）＋本日作った の2入力。のこり＝合計−前日−本日 を即時更新、確定で保存。
-        const prevInp = row.querySelector('.q-prev');
-        const inp     = row.querySelector('.q-made');
+        // ③ 過去分（実際に作った日を選んで直す・上で日付指定）＋本日作った の2入力。のこり＝合計−累計−本日 を即時更新、確定で保存。
+        //   ①②：累計は自動集計（読み取り専用）に変更。直すときは「過去分」の日付＋数量で、その日のぶんだけをピンポイントで上書きする
+        //        （生産日をキーにした行の上書きなので、同じ日を選べば何度直しても行は増えない）。
+        const inp        = row.querySelector('.q-made');
+        const prevDateInp = row.querySelector('.q-prev-date');
+        const prevAmtInp  = row.querySelector('.q-prev-amt');
         const readN = (el) => el ? Math.max(0, Math.round(Number(el.value)||0)) : 0;
         const recompute = () => {
-          const p = readN(prevInp), t = readN(inp);
+          const p = nzMadePrevEff(key), t = readN(inp);
           const rv = totalCs - p - t;
           const rline = row.querySelector('.qi.rest'); const rb = row.querySelector('.rest-v');
           if(rline && rb){ rline.classList.toggle('done', rv<=0); rb.textContent = csTxt(rv); }
+          const pt = row.querySelector('.prev-total'); if(pt){ pt.textContent = nzFmtKg(p); pt.title = nzPrevTooltip(key); }
           const pk = row.querySelector('.prev-kg'); if(pk) pk.innerHTML = isKg ? '' : kgTxt(p)+'<small>kg</small>';
           const mk = row.querySelector('.made-kg'); if(mk) mk.innerHTML = isKg ? '' : kgTxt(t)+'<small>kg</small>';
           const rk = row.querySelector('.rest-kg'); if(rk) rk.innerHTML = isKg ? '' : restKgTxt(rv)+'<small>kg</small>';
         };
-        if(prevInp){
-          prevInp.addEventListener('click', (e)=> e.stopPropagation());
-          prevInp.addEventListener('input', recompute);
-          prevInp.addEventListener('change', () => {
-            nzSetPrevOverride(key, readN(prevInp));   // 前日作成の手動修正（本日実績には影響しない）
+        // ①：「過去分」の日付を選ぶと、その日にすでに入っている数量を数量欄へ出す（無ければ空欄＝0扱い）
+        const loadPrevAmt = () => {
+          if(!prevDateInp || !prevAmtInp) return;
+          const d = nzFromISO_(prevDateInp.value);
+          const v = d ? (nzProdOf(key)[d] || 0) : 0;
+          prevAmtInp.value = v > 0 ? v : '';
+        };
+        loadPrevAmt();
+        if(prevDateInp && prevAmtInp){
+          prevDateInp.addEventListener('click', (e)=> e.stopPropagation());
+          prevAmtInp.addEventListener('click', (e)=> e.stopPropagation());
+          prevDateInp.addEventListener('change', loadPrevAmt);   // 日付を切り替えたら、その日の既存値を出し直す
+          prevAmtInp.addEventListener('change', () => {
+            const d = nzFromISO_(prevDateInp.value);
+            if(!d) return;
+            const v = readN(prevAmtInp);
+            nzSetProdOnDate(key, d, v);   // ②：選んだ日をキーに上書き＝同じ日を選べば行は増えない
+            recompute();
             refreshCarry();                            // ② 超過の有無に合わせて振り分けボタンを出し入れ
             if(typeof updateJissekiFromOps==='function') updateJissekiFromOps();
-            nzPushToSheet(o, nzYesterdayStr(), readN(prevInp));   // ② 前日作った分＝前日(昨日)の生産ログへ
+            nzPushToSheet(o, d, v);   // ①：選んだ実際の生産日で生産ログへ保存
           });
         }
         if(inp){
@@ -1643,6 +1667,9 @@
   function nzRowKey(o){ return o._id || (o.date + '|' + o.cust + '|' + (o.bunrui||'') + '|' + (o.nyusu||0)); }
   function nzTodayStr(){ var t = new Date(); return t.getFullYear() + '/' + (t.getMonth()+1) + '/' + t.getDate(); }
   function nzYmd_(k){ var p = String(k).split('|')[0].split('/'); return (p.length===3) ? new Date(p[0], p[1]-1, p[2]) : null; }
+  // ①：date input(yyyy-mm-dd) ⇔ 内部形式(yyyy/M/d) の変換（生産日の指定入力用）
+  function nzToISO_(s){ var p = String(s||'').split('/'); if(p.length!==3) return ''; return p[0]+'-'+('0'+p[1]).slice(-2)+'-'+('0'+p[2]).slice(-2); }
+  function nzFromISO_(s){ var p = String(s||'').split('-'); if(p.length!==3) return ''; return p[0]+'/'+Number(p[1])+'/'+Number(p[2]); }
 
   // localStorage 控え（オフラインや未デプロイでも当日ぶんは残るように）
   function nzMirrorLocal(){
@@ -1830,14 +1857,16 @@
     _nzsPatch.status[id] = (st === 'mikettei') ? null : st;
     nzPruneOld_(90); nzMirrorLocal(); nzStateScheduleSave();
   }
-  function nzSetMadeToday(key, cs){
-    if(!key) return;
-    var m = NZS.prod[key] || {}; var today = nzTodayStr();
-    if(!cs || cs <= 0) delete m[today]; else m[today] = cs;
+  // ①②：日付を指定してその日の生産量を直接上書きする（同じ日付を何度指定しても行が増えない＝上書き）
+  function nzSetProdOnDate(key, dateStr, cs){
+    if(!key || !dateStr) return;
+    var m = NZS.prod[key] || {};
+    if(!cs || cs <= 0) delete m[dateStr]; else m[dateStr] = cs;
     if(Object.keys(m).length) NZS.prod[key] = m; else delete NZS.prod[key];
-    _nzsPatch.prod[key] = _nzsPatch.prod[key] || {}; _nzsPatch.prod[key][today] = (!cs||cs<=0) ? 0 : cs;
+    _nzsPatch.prod[key] = _nzsPatch.prod[key] || {}; _nzsPatch.prod[key][dateStr] = (!cs||cs<=0) ? 0 : cs;
     nzPruneOld_(120); nzMirrorLocal(); nzStateScheduleSave();
   }
+  function nzSetMadeToday(key, cs){ nzSetProdOnDate(key, nzTodayStr(), cs); }   // 本日作った分＝今日の日付で上書き（従来どおり）
   function nzSetPrevOverride(key, cs){
     if(!key) return;
     var auto = nzMadePrev(key);
