@@ -851,14 +851,14 @@
             <div class="ampm-line"><span class="am">午前 <b id="j-bud-am">–</b></span><span class="pm">午後 <b id="j-bud-pm">–</b></span></div>
             <div class="delta">荷造りkg ÷ 舟数</div></div>
         </div>
-        <!-- ④ 加工（区分C/S）：荷造りCSキロ と 加工率＝C・S㎏ ÷（荷造り㎏ ＋ C・S㎏ − 生産者C・S㎏） -->
+        <!-- ④ 加工（区分C/S）：荷造りCSキロ と 加工率＝C・S㎏ ÷（荷造り㎏ ＋ C・S㎏）※生産者ぶんを含む -->
         <div class="stat-row" style="margin-top:8px">
           <div class="stat-tile"><div class="lbl">荷造りCSキロ</div><div class="val"><span id="j-cs-kg">--</span>kg</div>
             <div class="ampm-line"><span class="am">午前 <input class="ampm-inp" id="j-cs-am" type="number" min="0" step="0.1" inputmode="decimal" placeholder="–"></span><span class="pm">午後 <input class="ampm-inp" id="j-cs-pm" type="number" min="0" step="0.1" inputmode="decimal" placeholder="–"></span></div>
             <div class="delta">区分 C/S の作った分</div></div>
           <div class="stat-tile"><div class="lbl">加工率</div><div class="val"><span id="j-kakou">--</span><span style="font-size:15px;font-weight:600;">%</span></div>
             <div class="ampm-line"><span class="am">午前 <b id="j-kakou-am">–</b></span><span class="pm">午後 <b id="j-kakou-pm">–</b></span></div>
-            <div class="delta" id="j-kakou-note">C・S㎏ ÷（荷造り㎏＋C・S㎏−生産者C・S㎏）</div></div>
+            <div class="delta" id="j-kakou-note">C・S㎏ ÷（荷造り㎏＋C・S㎏）　※生産者ぶんを含む</div></div>
         </div>
         <div class="ampm-note" id="ampm-note">午前・午後は正午で自動的に区切って自動反映します。数字は手で入れ直せます（空欄にすると自動に戻ります）。</div>
       </div>
@@ -2884,15 +2884,14 @@
     var cs2 = Math.max(0, cs - sz.cs);             // C・S㎏（生産者のC・Sを差引）
     return { all:kg + cs2, cs:cs2, kg:kg, seisan:sz.total, rawAll:all, seisanCs:sz.cs, rawCs:cs };
   }
-  /* ===== ① 加工率 ＝ C・S㎏数 ÷（荷造り㎏数 ＋ C・S㎏数 − 生産者C・S㎏数） =====
-     分子・分母とも「生産者ぶんを差し引いた値」でそろえる（＝センターが加工に回した割合）。
-       C・S㎏数     … p.cs（画面の「荷造りCSキロ」。生産者のC・Sを差引済み）
-       荷造り㎏数   … p.kg（画面の「荷造りkg（実績）」。C・Sと生産者ぶんを除いた分）
-       生産者C・S㎏ … すでに p.cs から引いてあるので、ここで二重に引かない
-     ※ 引数は「そろえたあとの値」を受け取る。分母が0のときは null（＝「--」表示）。 */
+  /* ===== ① 加工率 ＝ C・S㎏数 ÷（荷造り㎏数 ＋ C・S㎏数） =====
+     生産者ぶんも含めた「全体」の実績で計算する（＝生産者分は差し引かない）。
+       C・S㎏数     … 生産者のC・Sも含めた合計
+       荷造り㎏数   … 生産者の洗い・土付き・半端も含めた合計（C・Sは除く）
+     ※ 引数は「生産者を含めた値」を受け取る。分母が0のときは null（＝「--」表示）。 */
   function kakouRitsu_(csKg, nizukuriKg){
     var c = Number(csKg)||0, k = Number(nizukuriKg)||0;
-    var bunbo = k + c;                       // ＝荷造り㎏ ＋ C・S㎏（どちらも生産者ぶん差引済み）
+    var bunbo = k + c;                       // ＝荷造り㎏ ＋ C・S㎏
     return (bunbo > 0) ? (c / bunbo * 100) : null;
   }
   function opsTodayMadeKg(){ return opsTodayMadeKgParts().kg; }   // 互換：荷造りkg（CSを除く）
@@ -2913,10 +2912,10 @@
     haichiSetText_('j-kg-note', '作った分の合計（CS・生産者分を除く）' + (p.seisan > 0 ? '　生産者 −' + haichiNum_(p.seisan) + 'kg' : ''));
     var bud = tFune > 0 ? (tKg / tFune) : null;           // 歩留まり＝荷造りkg（CS除く） ÷ 舟数
     haichiSetText_('j-budomari', bud != null ? haichiNum_(bud, 1) : '--');
-    var kak = kakouRitsu_(tCs, tKg);                      // ① 加工率＝C・S㎏ ÷（荷造り㎏＋C・S㎏−生産者C・S㎏）
+    // ① 加工率は生産者ぶんも含めた全体で計算する＝差し引いた生産者ぶんを tCs/tKg に足し戻す
+    var kak = kakouRitsu_(tCs + p.seisanCs, tKg + (p.seisan - p.seisanCs));   // ① 加工率＝C・S㎏(生産者含む) ÷（荷造り㎏(生産者含む)＋C・S㎏(生産者含む)）
     haichiSetText_('j-kakou', kak != null ? haichiNum_(kak, 1) : '--');
-    // ① 生産者C・Sを差し引いたときは、いくら引いたかを式のところに小さく出す（現場で検算できるように）
-    haichiSetText_('j-kakou-note', 'C・S㎏ ÷（荷造り㎏＋C・S㎏−生産者C・S㎏）' + (p.seisanCs > 0 ? '　生産者C・S −' + haichiNum_(p.seisanCs, 1) + 'kg' : ''));
+    haichiSetText_('j-kakou-note', 'C・S㎏ ÷（荷造り㎏＋C・S㎏）　※生産者ぶんを含む');
   }
 
   /* ===== ⑤② 午前・午後の実績内訳（自動反映＋手で入れ直せる） =====
@@ -3465,7 +3464,7 @@
         const shown = MD_NEWS.slice(0, 6);
         let html = shown.map(n=>`<div class="news-item">${mdItemHtml(n, today)}</div>`).join('');
         const label = (MD_NEWS.length > 6)
-          ? `🔍 過去のお知らせをすべて見る（${MD_NEWS.length}件）`
+          ? `🔍 過去のお知らせを見る（最大${Math.min(MD_NEWS.length, 10)}件）`
           : `🔍 過去のお知らせを見る`;
         html += `<div class="news-more"><button onclick="mdOpenHistory()">${label}</button></div>`;
         wrap.innerHTML = html;
@@ -3474,13 +3473,14 @@
     mdRenderNzNotice();
   }
 
-  // 履歴モーダル（全件）
+  // 履歴モーダル（過去最大10件）
   function mdOpenHistory(){
     const today = mdRefToday();
     const box = document.getElementById('md-modal-list');
     if(box){
-      box.innerHTML = (MD_NEWS && MD_NEWS.length)
-        ? MD_NEWS.map(n=>`<div class="news-item">${mdItemHtml(n, today)}</div>`).join('')
+      const list = (MD_NEWS || []).slice(0, 10);
+      box.innerHTML = list.length
+        ? list.map(n=>`<div class="news-item">${mdItemHtml(n, today)}</div>`).join('')
         : '<div class="news-empty">お知らせはありません</div>';
     }
     const m = document.getElementById('md-modal'); if(m) m.classList.add('show');
