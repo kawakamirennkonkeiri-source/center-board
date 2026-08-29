@@ -3009,10 +3009,10 @@
     var diff = mine - theirs;
     if(Math.abs(diff) < 0.1){
       el.className = 'match-msg ok';
-      el.textContent = '✅ 一致しました！今日もお疲れ様でした';
+      el.innerHTML = '✅ 一致しました！<br>今日もお疲れ様でした';
     }else{
       el.className = 'match-msg bad';
-      el.textContent = '⚠️ 差 ' + haichiNum_(Math.abs(diff), 1) + 'kg あり・要確認';
+      el.innerHTML = '⚠️ 差 ' + haichiNum_(Math.abs(diff), 1) + 'kgあり<br>要確認';
     }
   }
 
