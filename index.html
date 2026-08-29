@@ -1468,6 +1468,18 @@
   }
   function nzRender(){
     const wrap = document.getElementById('nz-rows');
+    // ② 入力中（フォーカス中）の欄は、まだ change/自動保存が済んでいない可能性があるので、
+    //    再描画で消してしまわないよう値を退避し、描画後に同じ欄へ復元する（30秒の一斉再描画対策）。
+    const activeEl = document.activeElement;
+    let pendingRestore = null;
+    if(activeEl && wrap.contains(activeEl) && activeEl.dataset && activeEl.dataset.nzkey &&
+       (activeEl.classList.contains('q-made') || activeEl.classList.contains('q-prev-amt'))){
+      pendingRestore = {
+        cls: activeEl.classList.contains('q-made') ? 'q-made' : 'q-prev-amt',
+        key: activeEl.dataset.nzkey, value: activeEl.value,
+        selStart: activeEl.selectionStart, selEnd: activeEl.selectionEnd
+      };
+    }
     wrap.innerHTML = '';
     let gTotal=0, gDone=0, gPending=0;
 
@@ -1531,10 +1543,10 @@
             `<div class="qi prev"><span class="ql">累計</span><span class="cs prev-total" title="${prevTip}">${nzFmtKg(prevCs)}</span><span class="qkg prev-kg">${kg2(prevCs)}</span>`+
               `<div class="prev-fix" title="過去に作った分を、実際に作った日を選んで直す（同じ日を選べば上書き＝行が増えません）">`+
                 `<input class="q-prev-date" type="date" max="${nzToISO_(nzYesterdayStr())}" value="${nzToISO_(nzYesterdayStr())}">`+
-                `<input class="q-prev-amt" type="number" min="0" step="1" inputmode="numeric" placeholder="0">`+
+                `<input class="q-prev-amt" data-nzkey="${key}" type="number" min="0" step="1" inputmode="numeric" placeholder="0">`+
               `</div>`+
             `</div>`+
-            `<div class="qi made"><span class="ql">本日</span><input class="q-made" type="number" min="0" step="1" inputmode="numeric" value="${todayCs||''}" placeholder="0"><span class="qkg made-kg">${kg2(todayCs)}</span></div>`+
+            `<div class="qi made"><span class="ql">本日</span><input class="q-made" data-nzkey="${key}" type="number" min="0" step="1" inputmode="numeric" value="${todayCs||''}" placeholder="0"><span class="qkg made-kg">${kg2(todayCs)}</span></div>`+
             `<div class="qi rest${restCs<=0?' done':''}"><span class="ql">のこり</span><span class="cs"><b class="rest-v">${csTxt(restCs)}</b><small>${U}</small></span><span class="qkg rest-kg">${isKg?'':`${restKgTxt(restCs)}<small>kg</small>`}</span></div>`+
           `</div>`+
           // ② 真空・ピローで発注ぶんを超えて作ったときだけ「先の発注へ振り分け」ボタンを出す枠
@@ -1584,7 +1596,7 @@
           prevDateInp.addEventListener('click', (e)=> e.stopPropagation());
           prevAmtInp.addEventListener('click', (e)=> e.stopPropagation());
           prevDateInp.addEventListener('change', loadPrevAmt);   // 日付を切り替えたら、その日の既存値を出し直す
-          prevAmtInp.addEventListener('change', () => {
+          const savePrevAmt = () => {
             const d = nzFromISO_(prevDateInp.value);
             if(!d) return;
             const v = readN(prevAmtInp);
@@ -1593,17 +1605,33 @@
             refreshCarry();                            // ② 超過の有無に合わせて振り分けボタンを出し入れ
             if(typeof updateJissekiFromOps==='function') updateJissekiFromOps();
             nzPushToSheet(o, d, v);   // ①：選んだ実際の生産日で生産ログへ保存
+          };
+          // ①：入力が0.9秒止まったら自動保存（changeイベント＝フォーカスが外れるまで待つと、
+          //     その間に30秒の一斉再描画が来て入力が消えることがあるため、待たずに確定させる）
+          let prevAmtSaveTimer = null;
+          prevAmtInp.addEventListener('input', () => {
+            clearTimeout(prevAmtSaveTimer);
+            prevAmtSaveTimer = setTimeout(savePrevAmt, 900);
           });
+          prevAmtInp.addEventListener('change', () => { clearTimeout(prevAmtSaveTimer); savePrevAmt(); });
         }
         if(inp){
           inp.addEventListener('click', (e)=> e.stopPropagation());
-          inp.addEventListener('input', recompute);
-          inp.addEventListener('change', () => {
+          const saveMadeToday = () => {
             nzSetMadeToday(key, readN(inp));           // 本日作った分＝今日の生産日に保存（本日実績に反映）
             refreshCarry();                            // ② 超過の有無に合わせて振り分けボタンを出し入れ
             if(typeof updateJissekiFromOps==='function') updateJissekiFromOps();
             nzPushToSheet(o, nzTodayStr(), readN(inp));   // ② 本日作った分＝今日の生産ログへ
+          };
+          // ①：入力が0.9秒止まったら自動保存（changeイベント＝フォーカスが外れるまで待つと、
+          //     その間に30秒の一斉再描画が来て入力が消えることがあるため、待たずに確定させる）
+          let madeSaveTimer = null;
+          inp.addEventListener('input', () => {
+            recompute();
+            clearTimeout(madeSaveTimer);
+            madeSaveTimer = setTimeout(saveMadeToday, 900);
           });
+          inp.addEventListener('change', () => { clearTimeout(madeSaveTimer); saveMadeToday(); });
         }
         og.appendChild(row);
       });
@@ -1612,6 +1640,16 @@
     document.getElementById('nz-total').innerHTML   = nzFmtKg(gTotal)+'<small>K</small>';
     document.getElementById('nz-done').innerHTML    = gDone+'<small>件</small>';
     document.getElementById('nz-pending').innerHTML = gPending+'<small>件</small>';
+    // ② 再描画前に入力中だった欄があれば、同じ欄（取引先+区分+入数キーが一致するもの）へ値とカーソル位置を復元する
+    if(pendingRestore){
+      const target = wrap.querySelector('.'+pendingRestore.cls+'[data-nzkey="'+pendingRestore.key.replace(/"/g,'\\"')+'"]');
+      if(target){
+        target.value = pendingRestore.value;
+        target.dispatchEvent(new Event('input', { bubbles:true }));   // のこり表示などの依存表示も揃える
+        target.focus();
+        try{ target.setSelectionRange(pendingRestore.selStart, pendingRestore.selEnd); }catch(e){}
+      }
+    }
     if(typeof fitBoard==='function') fitBoard();   // ⑦ 行数が変わったら1画面に合わせ直す
   }
 
