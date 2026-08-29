@@ -165,6 +165,11 @@
   .stat-tile .delta{ font-size:12px; margin-top:4px; font-weight:700;}
   .delta.good{ color:var(--green);}
   .delta.warn{ color:#a76a00;}
+  /* ⑥ 発注書「進捗」合計㎏数との一致確認 */
+  .match-tile{ display:flex; flex-direction:column; justify-content:center;}
+  .match-msg{ font-size:15px; font-weight:800; padding:10px 10px; border-radius:8px; line-height:1.4; background:var(--page); color:var(--text-secondary);}
+  .match-msg.ok{ background:#e7f6e7; color:#1c7d1c;}
+  .match-msg.bad{ background:#fdecea; color:#7a1f1f;}
   /* ⑤ 午前/午後の内訳 */
   .stat-tile .ampm-line{ display:flex; gap:10px; margin-top:6px; font-size:12px; font-weight:700; color:var(--text-secondary);}
   .stat-tile .ampm-line .am{ color:var(--blue-deep);}
@@ -861,6 +866,8 @@
           <div class="stat-tile"><div class="lbl">加工率</div><div class="val"><span id="j-kakou">--</span><span style="font-size:15px;font-weight:600;">%</span></div>
             <div class="ampm-line"><span class="am">午前 <b id="j-kakou-am">–</b></span><span class="pm">午後 <b id="j-kakou-pm">–</b></span></div>
             <div class="delta" id="j-kakou-note">C・S㎏ ÷（荷造り㎏＋C・S㎏）　※生産者ぶんを含む</div></div>
+          <div class="stat-tile match-tile"><div class="lbl">発注書「進捗」との一致確認</div>
+            <div class="match-msg" id="j-match-msg">確認中…</div></div>
         </div>
         <div class="ampm-note" id="ampm-note">午前・午後は正午で自動的に区切って自動反映します。数字は手で入れ直せます（空欄にすると自動に戻ります）。</div>
       </div>
@@ -2876,7 +2883,7 @@
   }
 
   // ②③ 本日サマリ：本日の荷造り舟数(発注書の「収穫舟数」列・見出しで検出→列がズレても追従)・実績(舟数/kg/歩留まり=力量表「実績」)・終了目標時刻
-  var boardData = { targetFunes:null, jissekiFunes:null, hatsuri:0, attendNow:0, serverTarget:null, targetOverride:null };
+  var boardData = { targetFunes:null, jissekiFunes:null, jissekiKg:null, orderTotalKg:null, hatsuri:0, attendNow:0, serverTarget:null, targetOverride:null };
   function haichiNum_(n, d){ if(n==null || isNaN(n)) return '--'; return Number(n).toLocaleString('ja-JP', {maximumFractionDigits: d||0}); }
   function haichiSetText_(id, v){ var e = document.getElementById(id); if(e) e.textContent = v; }
   function haichiUpdateBoard(s){
@@ -2887,6 +2894,7 @@
     boardData.targetFunes = (ovr != null) ? ovr : boardData.serverTarget;
     var j = s.jisseki || {};
     boardData.jissekiFunes = (typeof j.funes === 'number') ? j.funes : null;
+    boardData.orderTotalKg = (typeof s.orderTotalKg === 'number') ? s.orderTotalKg : null;
     // 上段（予測・予定）：本日の荷造り舟数（＝発注書 or 数量変更 ＋ 生産者の収穫舟数）
     haichiSetText_('t-target-sub', ovr!=null ? '当日変更（発注書の予定を上書き）' : '発注書より（本日の総舟数）');
     haichiRefreshTargets_();   // t-target-funes と 荷造りkg（予定）を生産者舟数込みで再計算
@@ -2972,6 +2980,7 @@
     var ap    = updateAmPm(funes, p.kg, p.cs);
     var tFune = ap.funes.total, tKg = ap.kg.total, tCs = ap.cs.total;
     boardData.jissekiFunes = tFune;
+    boardData.jissekiKg = tKg;
     haichiSetText_('j-funes', haichiNum_(tFune));
     haichiSetText_('j-kg',    haichiNum_(tKg));
     haichiSetText_('j-cs-kg', haichiNum_(tCs));
@@ -2983,6 +2992,28 @@
     var kak = kakouRitsu_(tCs + p.seisanCs, tKg + (p.seisan - p.seisanCs));   // ① 加工率＝C・S㎏(生産者含む) ÷（荷造り㎏(生産者含む)＋C・S㎏(生産者含む)）
     haichiSetText_('j-kakou', kak != null ? haichiNum_(kak, 1) : '--');
     haichiSetText_('j-kakou-note', 'C・S㎏ ÷（荷造り㎏＋C・S㎏）　※生産者ぶんを含む');
+    checkProgressMatch_();
+  }
+  // ⑥ 電子黒板「荷造りkg（実績）」と 発注書「進捗」シートの「合計kg数」が一致しているか確認。
+  //    ※列位置ではなく「合計kg数」の見出し文字で突き合わせる値（サーバ側 readOrderProgressKg_）なので、
+  //      新規取引先が増えて発注書の列がズレても影響しない。
+  function checkProgressMatch_(){
+    var el = document.getElementById('j-match-msg');
+    if(!el) return;
+    var mine = boardData.jissekiKg, theirs = boardData.orderTotalKg;
+    if(typeof mine !== 'number' || typeof theirs !== 'number'){
+      el.className = 'match-msg';
+      el.textContent = '確認中…（データ取得待ち）';
+      return;
+    }
+    var diff = mine - theirs;
+    if(Math.abs(diff) < 0.1){
+      el.className = 'match-msg ok';
+      el.textContent = '✅ 一致しました！今日もお疲れ様でした';
+    }else{
+      el.className = 'match-msg bad';
+      el.textContent = '⚠️ 差 ' + haichiNum_(Math.abs(diff), 1) + 'kg あり・要確認';
+    }
   }
 
   /* ===== ⑤② 午前・午後の実績内訳（自動反映＋手で入れ直せる） =====
