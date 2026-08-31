@@ -1,0 +1,1431 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>センター配置図（電子黒板イメージ）</title>
+<style>
+  :root{
+    --surface:#fcfcfb; --page:#eef1f6; --text:#0b0b0b; --text2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --border:rgba(11,11,11,0.10);
+    --blue:#2a78d6; --blue-deep:#184f95; --green:#0ca30c; --amber:#fab219; --red:#d03b3b; --violet:#4a3aa7;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--page);font-family:system-ui,-apple-system,"Segoe UI","Hiragino Kaku Gothic ProN",sans-serif;color:var(--text);}
+  header{background:var(--blue-deep);color:#fff;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;}
+  header h1{font-size:20px;margin:0;}
+  header p{margin:2px 0 0;font-size:12px;color:#cfe0f8;}
+  .tabs{display:flex;gap:6px;padding:12px 24px 0;background:var(--page);}
+  .tab-btn{border:none;background:var(--surface);border:1px solid var(--border);padding:9px 18px;border-radius:8px 8px 0 0;font-size:14px;font-weight:700;color:var(--text2);cursor:pointer;}
+  .tab-btn.active{background:var(--surface);color:var(--blue-deep);border-bottom:3px solid var(--blue);}
+  .panel{display:none;padding:18px 24px 40px;max-width:1500px;margin:0 auto;}
+  .panel.active{display:block;}
+
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:16px;}
+  .toolbar .stat{font-size:13px;color:var(--text2);}
+  .toolbar .stat b{font-size:18px;color:var(--blue-deep);}
+  button.action{background:var(--blue);color:#fff;border:none;border-radius:7px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;}
+  button.action.secondary{background:#fff;color:var(--blue-deep);border:1px solid var(--blue);}
+  button.action.ghost{background:var(--page);color:var(--text2);border:1px solid var(--border);}
+  button.action:active{transform:translateY(1px);}
+
+  /* ---- 写真そのままレイアウトの配置図ボード ---- */
+  .board-photo{
+    position:relative; width:100%; aspect-ratio:1101/813;
+    background:#e7e7e3; border:3px solid #3a3a3a; border-radius:16px;
+    box-shadow:inset 0 0 0 6px #f4f4f2;
+    overflow:visible;
+  }
+  .zone-label{
+    position:absolute; transform:translate(-50%,-50%);
+    background:#fff; border:2.5px solid #1c1c1c; border-radius:4px;
+    display:flex; align-items:center; justify-content:center;
+    font-weight:800; text-align:center; white-space:nowrap;
+    font-size:clamp(10px,1.5vw,17px); padding:2px 6px;
+  }
+  /* ② 本日の工程（真空/シュリンク あり・なし）トグル＝板の左の空きスペースに載せる */
+  /* ② 本日の工程トグル＝板の外（タブ下・板の上の横バー）。板の中には重ねない。 */
+  .zone-off-panel{ display:flex; align-items:center; gap:18px; background:#fff; border:1px solid #d9dce3; border-radius:10px; padding:8px 14px; margin-bottom:8px; }
+  .zone-off-panel .zop-ttl{ font-size:13px; font-weight:800; color:#184f95; }
+  .zone-off-panel #zop-body{ display:flex; gap:20px; flex-wrap:wrap; }
+  .zone-off-panel .zop-row{ display:flex; align-items:center; gap:8px; }
+  .zone-off-panel .zop-name{ font-size:13px; font-weight:800; color:#2b2b2b; }
+  .zone-off-panel .zop-btns{ display:flex; gap:5px; }
+  .zone-off-panel .zop-btn{ appearance:none; cursor:pointer; font-family:inherit; font-size:13px; font-weight:800; border:2px solid #cfd4dc; background:#fff; color:#6b6b6b; padding:6px 14px; border-radius:8px; }
+  .zone-off-panel .zop-btn.on.sel{ background:#0ca30c; border-color:#0ca30c; color:#fff; }
+  .zone-off-panel .zop-btn.off.sel{ background:#d03b3b; border-color:#d03b3b; color:#fff; }
+  /* ② 午前／午後の時間帯ボタン（選択中＝青） */
+  .zone-off-panel .zop-btn.slot-btn{ padding:8px 22px; font-size:15px; }
+  .zone-off-panel .zop-btn.slot-btn.sel{ background:#184f95; border-color:#184f95; color:#fff; }
+  /* ② 確認（ロック）ボタン＝午前/午後の下。編集中＝緑／ロック中＝赤。 */
+  .slot-panel .lock-btn{ appearance:none; cursor:pointer; font-family:inherit; font-size:15px; font-weight:800; border:2px solid #0ca30c; background:#eafbea; color:#0a7a0a; padding:9px 14px; border-radius:9px; width:100%; }
+  .slot-panel .lock-btn.locked{ border-color:#d03b3b; background:#fdecec; color:#c02a2a; }
+  .slot-panel .lock-note{ font-size:11px; font-weight:700; color:#8a8f98; text-align:center; }
+  /* ② ロック中はボード全体を薄い赤枠で示し、うっかり操作しても崩れないことを見せる */
+  body.haichi-locked .board-photo{ box-shadow:0 0 0 3px rgba(208,59,59,.35); border-radius:8px; }
+  /* ① 配置図を3カラム（左＝工程/時間帯・中央＝配置図・右＝操作）に。板が大きくなりすぎないよう中央を制限。 */
+  /* 🔮 予測モード（電子黒板の「配置図（予測）」タブ）の帯 */
+  .plan-banner{ background:#eef4ff; border:2px solid #9dbcf0; border-left:8px solid #184f95; border-radius:10px; padding:10px 14px; margin-bottom:10px; font-size:16px; font-weight:800; color:#123a70; }
+  .plan-banner .pb-note{ display:block; margin-top:3px; font-size:12px; font-weight:700; color:#4a6a99; line-height:1.6; }
+  .haichi-3col{ display:grid; grid-template-columns:210px minmax(0,1fr) 190px; gap:14px; align-items:start; margin-bottom:8px; }
+  .haichi-3col .hc-left, .haichi-3col .hc-right{ display:flex; flex-direction:column; gap:10px; }
+  .haichi-3col .hc-left .zone-off-panel{ flex-direction:column; align-items:stretch; gap:10px; margin-bottom:0; }
+  .haichi-3col .hc-center{ min-width:0; display:flex; justify-content:center; }
+  .haichi-3col .hc-center .board-photo{ max-width:900px; }
+  .haichi-3col .hc-right .action{ width:100%; text-align:center; }
+  .haichi-3col .hc-right .stat b{ color:var(--blue-deep); font-weight:800; }
+  @media(max-width:820px){ .haichi-3col{ grid-template-columns:1fr; } .haichi-3col .hc-center .board-photo{ max-width:none; } }
+  .pool-region{
+    position:absolute; border:1.5px dashed #b7b6ae; border-radius:10px;
+    background:rgba(255,255,255,0.5);
+  }
+  .pool-region .cap-label{ position:absolute; top:-11px; left:8px; background:var(--page); font-size:11px; font-weight:800; color:var(--text2); padding:0 6px;}
+  .pool-region .flow{
+    position:absolute; inset:14px 6px 6px 6px; display:flex; flex-wrap:wrap; align-content:flex-start; gap:4px; overflow:auto;
+  }
+  .pool-chip{
+    background:#fff; border:1.5px solid #bcbbb4; border-radius:50%;
+    width:clamp(30px,5.6vw,46px); height:clamp(30px,5.6vw,46px);
+    display:flex; align-items:center; justify-content:center; text-align:center;
+    font-size:clamp(8px,1vw,11px); font-weight:700; line-height:1.05; padding:1px; cursor:pointer;
+  }
+  .pool-chip:hover{ border-color:var(--blue); }
+
+  .slot-abs{
+    position:absolute; transform:translate(-50%,-50%);
+    width:clamp(34px,6.2vw,54px); height:clamp(34px,6.2vw,54px);
+    border-radius:50%; border:3px solid var(--red); background:#fff;
+    display:flex; align-items:center; justify-content:center; text-align:center;
+    font-size:clamp(8px,1.05vw,12px); font-weight:800; color:var(--muted);
+    cursor:pointer; line-height:1.05; padding:1px;
+  }
+  .slot-abs.filled{ color:#fff; border-style:solid; }
+  .slot-abs .pin{position:absolute;top:-6px;right:-6px;font-size:11px;background:var(--amber);border-radius:50%;width:16px;height:16px;display:flex;align-items:center;justify-content:center;}
+  .lvl-good{background:var(--green);border-color:var(--green);}
+  .lvl-warn{background:var(--amber);border-color:var(--amber);color:#3a2a00;}
+  .lvl-none{background:var(--blue);border-color:var(--blue);}
+  .lvl-bad{background:var(--red);border-color:var(--red);}
+
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text2);margin-top:14px;}
+  .legend .dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:4px;vertical-align:-1px;}
+
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;z-index:50;}
+  .overlay.show{display:flex;}
+  .modal{background:#fff;border-radius:12px;padding:20px 22px;width:360px;max-width:92vw;box-shadow:0 8px 40px rgba(0,0,0,.25);}
+  .modal h4{margin:0 0 4px;font-size:16px;}
+  .modal .sub{font-size:12px;color:var(--muted);margin-bottom:14px;}
+  .modal select{width:100%;padding:8px;border-radius:6px;border:1px solid var(--grid);font-size:13px;margin-bottom:10px;}
+  .modal .row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+  .modal button{flex:1;padding:9px;border-radius:7px;border:none;font-size:12px;font-weight:700;cursor:pointer;}
+  .btn-move{background:var(--blue);color:#fff;} .btn-swap{background:var(--violet);color:#fff;}
+  .btn-unassign{background:var(--page);color:var(--text2);} .btn-pin{background:var(--amber);color:#3a2a00;}
+  .btn-close{background:none;color:var(--muted);text-align:center;margin-top:6px;width:100%;font-size:12px;}
+
+  /* skill table */
+  table.skill{border-collapse:collapse;width:100%;background:var(--surface);border:1px solid var(--border);font-size:12px;}
+  table.skill th,table.skill td{border:1px solid var(--grid);padding:5px 4px;text-align:center;}
+  table.skill th{background:var(--page);font-size:11px;position:sticky;top:0;}
+  table.skill td.name{text-align:left;font-weight:700;background:var(--page);position:sticky;left:0;}
+  table.skill td.cell{cursor:pointer;font-weight:800;width:54px;}
+  table.skill td.cell.o{background:#e5f7e5;color:var(--green);}
+  table.skill td.cell.t{background:#fff6e0;color:#a76a00;}
+  table.skill td.cell.x{background:#fdecea;color:var(--red);}
+  table.skill td.cell.blank{color:var(--muted);}
+  .table-wrap{max-height:640px;overflow:auto;border-radius:8px;}
+  .att-toggle{width:16px;height:16px;cursor:pointer;}
+
+  .note{background:#fff8e6;border:1px solid #f3d999;border-radius:8px;padding:12px 14px;font-size:12.5px;color:#6a4b00;line-height:1.7;margin-bottom:16px;}
+
+  /* シフト状態バッジ（力量表の出勤チェックの横に表示） */
+  .shift-badge{font-size:10px;font-weight:800;border-radius:4px;padding:1px 5px;white-space:nowrap;line-height:1.4;}
+  .shift-badge.s-on{background:#e5f7e5;color:var(--green);}
+  .shift-badge.s-off{background:#ececec;color:var(--muted);}
+  .shift-badge.s-half{background:#fff2d6;color:#a76a00;}
+  .shift-badge.s-time{background:#e6effc;color:var(--blue-deep);}
+  td.att-cell label{display:inline-flex;align-items:center;gap:5px;justify-content:center;}
+  /* 力量表のマス＝配置優先の入力（数字／×／空欄） */
+  table.skill td.cell{padding:2px;}
+  input.prio-cell{width:100%;min-width:38px;box-sizing:border-box;text-align:center;border:1px solid var(--grid);border-radius:5px;padding:5px 2px;font-size:13px;font-weight:800;background:#fff;color:var(--text2);}
+  input.prio-cell:focus{outline:2px solid var(--blue);border-color:var(--blue);}
+  table.skill td.cell.pcell-n{background:#e5f7e5;}
+  table.skill td.cell.pcell-n input.prio-cell{color:var(--green);}
+  table.skill td.cell.pcell-x{background:#fdecea;}
+  table.skill td.cell.pcell-x input.prio-cell{color:var(--red);}
+  table.skill td.cell.pcell-blank input.prio-cell{color:var(--muted);}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>㈱カワカミ蓮根　センター配置図（電子黒板イメージ）</h1>
+    <p>ホワイトボードの配置マグネットを、そのままの並びでデジタル化しました（プロトタイプ／力量はサンプルです）</p>
+  </div>
+</header>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="haichi" onclick="switchTab('haichi',this)">📍 配置図</button>
+  <button class="tab-btn" data-tab="skill" onclick="switchTab('skill',this)">📊 力量表（閲覧）</button>
+  <button class="tab-btn" data-tab="settei" onclick="switchTab('settei',this)">⚙️ ゾーン設定</button>
+</div>
+
+<!-- ==================== 配置図タブ ==================== -->
+<div class="panel active" id="panel-haichi">
+  <!-- 🔮 予測モード（?mode=plan）のときだけ出る帯。対象日と注意書きを表示する。 -->
+  <div class="plan-banner" id="plan-banner" style="display:none;"></div>
+  <div class="note">
+    現場の11工程（流し・はつり・仕分け・仕分け補助・箱入れ・ピロー投入・ピロー箱入れ・真空投入・真空箱入れ・パレット・箱織／左上＝ビス置き場＝未配置置き場）を配置しています。空き枠の赤丸をタップすると、その場所に人を配置できます。名前の丸をタップすると移動・入替ができます。位置・人数の枠は仮です（ゾーン設定で調整可）。違っていたら教えてください。
+  </div>
+  <!-- ① 3カラム：左＝本日の工程/時間帯　中央＝配置図　右＝操作（自動配置・画像で保存） -->
+  <div class="haichi-3col">
+    <!-- 左カラム -->
+    <div class="hc-left">
+      <!-- ② 本日の工程トグル（真空/ピロー あり・なし） -->
+      <div class="zone-off-panel" id="zone-off-panel">
+        <div class="zop-ttl">本日の工程</div>
+        <div id="zop-body"></div>
+      </div>
+      <!-- ② 時間帯（午前／午後）：押すとその時間帯の配置を表示（午前と午後は別々に記憶） -->
+      <div class="zone-off-panel slot-panel" id="slot-panel">
+        <div class="zop-ttl">時間帯</div>
+        <div class="zop-btns">
+          <button type="button" class="zop-btn slot-btn" id="btn-am" onclick="setSlot('AM')">午前</button>
+          <button type="button" class="zop-btn slot-btn" id="btn-pm" onclick="setSlot('PM')">午後</button>
+        </div>
+        <!-- ② 確認（ロック）：配置が決まったら「確認」でロック。午前/午後は見られるが、それ以外は触れない。もう一度押すと編集に戻る。 -->
+        <button type="button" class="lock-btn" id="lock-btn" onclick="haichiToggleLock_()">✏️ 編集中</button>
+        <div class="lock-note" id="lock-note">配置を決めたら「確認」でロック</div>
+      </div>
+    </div>
+
+    <!-- 中央カラム：配置図 -->
+    <div class="hc-center">
+      <div class="board-photo" id="board-photo"></div>
+    </div>
+
+    <!-- 右カラム：操作 -->
+    <div class="hc-right">
+      <button class="action" onclick="haichiUserAutoAssign_()" title="優先番号順・同番号はランダム">🧩 自動配置</button>
+      <input type="hidden" id="save-ampm" value="AM">
+      <button class="action" style="background:#184f95;" onclick="saveBoardImage()">🖼️ 画像で保存</button>
+      <span id="save-status" style="font-size:12px;color:var(--text2);"></span>
+      <div class="stat" style="font-size:12px;color:var(--text2);line-height:1.9;border-top:1px solid var(--border);padding-top:8px;margin-top:2px;">配置済み：<b id="stat-assigned">0</b> / <span id="stat-capacity">0</span> 枠<br>未配置：<b id="stat-pool">0</b> 名<br>本日出勤：<b id="stat-attend">0</b> 名</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div><span class="dot" style="background:var(--green)"></span>配置優先の番号あり</div>
+    <div><span class="dot" style="background:var(--blue)"></span>番号なし（手動で配置）</div>
+    <div><span class="dot" style="background:var(--red)"></span>× 不可（自動配置の対象外）</div>
+    <div>⭐ 固定（自動配置で動かさない）</div>
+    <div>白丸＝ビス置き場（未配置プール）　赤丸＝配置枠</div>
+  </div>
+</div>
+
+<!-- ==================== 力量表タブ ==================== -->
+<div class="panel" id="panel-skill">
+  <div class="note">
+    <b>この表は「配置優先（優先番号）」を表示しています（閲覧専用）。</b>数字が小さいほど先に配置・<b>×</b>＝その場所は不可・<b>―</b>＝なし。<b>編集はスプレッドシートの「配置優先」シートで</b>行ってください（保存すると数分で配置図に反映されます）。<br>
+    <b>出勤（シフト）</b>のチェックだけは、その日の欠席などに合わせてここで外せます。<b>外すとその日はもう配置に戻りません</b>（急な休み・センターに入らない日など。シフト表が〇でも復活しません。翌日になると自動でリセット）。外した内容は<b>全部のPC・液晶に共有</b>されます。戻したいときはチェックを付け直してください。
+    <div style="margin-top:10px;">
+      <button class="action" style="background:#0f7a34;" onclick="openSkillSheet()">📝 スプレッドシートを開く（「配置優先」シートで編集）</button>
+      <span id="skill-sheet-note" style="font-size:12px;color:var(--text2);margin-left:8px;"></span>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="skill" id="skill-table"></table>
+  </div>
+</div>
+
+<!-- ==================== ゾーン設定タブ ==================== -->
+<div class="panel" id="panel-settei">
+  <div class="note">ゾーンの表示名・人数（枠数）・自動配置での<b>ゾーン優先度</b>（数字が小さいゾーンから先に埋めます）を調整できます。誰をどの場所に優先するかは「📊力量表（入力）」タブの各マスに番号で入れてください。写真どおりの初期配置より人数を増やすと、増えた分の枠はゾーンの下に追加表示されます。</div>
+  <div class="table-wrap">
+    <table class="skill" id="zone-settings-table"></table>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal" id="modal"></div>
+</div>
+
+<script>
+/* ===================== データ ===================== */
+// 実在の力量表（センター力量表_DX配置用.xlsx）の氏名リストをそのまま使用
+const WORKER_NAMES = ["村中","平田","林田","ルック","トゥオン","ズオン","ヒエン","アイン","ティ","ハン",
+  "ハリマン","ノファ","アリス","髙木","山隈","米谷","カオ","津村","竹崎","池田",
+  "細川","藤本","梅野","坂本","フエン","曽我","木ノ下"];
+
+// ゾーン：工程を左→右／上→下の流れで配置。slotsは配置枠の座標。表示名は現場の11工程に合わせて更新（2026-08）。
+// ※内部id（conveyor/shinku/shrink/hakoori 等）は既存ロジック互換のため据え置き、label/skill＝表示名だけ更新。
+let ZONES = [
+  // 配列順＝力量表の列順（現場の工程順）。物理位置はlabelPos/slotsで固定。元のホワイトボードの形に合わせて配置（2026-08 改訂）。
+  // 流し（下段左・元の位置）
+  {id:'nagashi',  label:'流し', skill:'流し',
+    labelPos:{left:12, top:84},
+    slots:[ {left:3,top:80}, {left:3,top:89} ],
+    priority:9},
+  // はつり（下段中央・コンベア・元の位置）
+  {id:'conveyor', label:'はつり', skill:'はつり',
+    labelPos:{left:52, top:82},
+    slots:[
+      {left:28,top:71},{left:28,top:93},{left:34,top:71},{left:34,top:93},{left:40,top:71},{left:40,top:93},{left:46,top:71},{left:46,top:93},{left:52,top:71},{left:52,top:93},{left:58,top:71},{left:58,top:93},{left:64,top:71},{left:64,top:93},{left:70,top:71},{left:70,top:93}
+    ],
+    priority:1},
+  // 仕分け（箱入れの左・上下2人）
+  {id:'shiwake',  label:'仕分け', skill:'仕分け',
+    labelPos:{left:84, top:68},
+    slots:[ {left:84,top:76}, {left:84,top:87} ],
+    priority:7},
+  // 仕分け補助（仕分けの左・上下2人・はつり右端の右）。ラベルはハリマンの円と被らないよう上げる。
+  {id:'shiwake_h', label:'仕分け補助', skill:'仕分け補助',
+    labelPos:{left:76, top:62},
+    slots:[ {left:75,top:76}, {left:75,top:87} ],
+    priority:8},
+  // 箱入れ（右側・上下2人）
+  {id:'hakoire',  label:'箱入れ', skill:'箱入れ',
+    labelPos:{left:96, top:68},
+    slots:[ {left:96,top:76}, {left:96,top:87} ],
+    priority:2},
+  // ピロー投入（元シュリンクの左＝投入の人）
+  {id:'shrink', label:'ピロー投入', skill:'ピロー投入',
+    labelPos:{left:12, top:45},
+    slots:[ {left:12,top:52} ],
+    priority:5},
+  // ピロー箱入れ（元シュリンクの右＝箱入れの人）
+  {id:'pillow_box', label:'ピロー箱入れ', skill:'ピロー箱入れ',
+    labelPos:{left:45, top:45},
+    slots:[ {left:45,top:52} ],
+    priority:6},
+  // 真空投入（元真空の左＝投入の人）
+  {id:'shinku',   label:'真空投入', skill:'真空投入',
+    labelPos:{left:12, top:26},
+    slots:[ {left:12,top:33} ],
+    priority:3},
+  // 真空箱入れ（元真空の右＝箱入れの人）
+  {id:'shinku_box', label:'真空箱入れ', skill:'真空箱入れ',
+    labelPos:{left:31, top:26},
+    slots:[ {left:31,top:33} ],
+    priority:4},
+  // パレット（上段右・元の位置）
+  {id:'pallet',   label:'パレット', skill:'パレット',
+    labelPos:{left:82, top:8},
+    slots:[ {left:79,top:17.5}, {left:88,top:17.5} ],
+    priority:10},
+  // 箱織（上段中央・元の箱折り位置）
+  {id:'hakoori',  label:'箱織', skill:'箱織',
+    labelPos:{left:52, top:8},
+    slots:[ {left:47,top:16.5}, {left:57,top:16.5} ],
+    priority:11},
+];
+
+// 未配置（プール＝写真の「ビス」置き場）の表示領域
+const POOL_REGION = {left:2, top:1, width:34, height:24};
+
+let workers = WORKER_NAMES.map((name,i)=>({id:'w'+i, name, attend:true, shiftStatus:''}));
+
+// 力量：workerId -> skillKey -> '○'|'△'|'×'|''
+let skills = {};
+workers.forEach(w=>{ skills[w.id] = {}; ZONES.forEach(z=> skills[w.id][z.skill] = ''); });
+
+// サンプル評価（実際の評価に置き換えてください／評価基準シート運用手順①②に沿って現場で入力）
+const SAMPLE = {
+  "村中":{"はつり":"○","真空投入":"○"}, "平田":{"はつり":"○","パレット":"○"}, "林田":{"はつり":"○","箱入れ":"○"},
+  "ルック":{"はつり":"○","流し":"△"}, "トゥオン":{"はつり":"○"}, "ズオン":{"はつり":"○"}, "ヒエン":{"はつり":"○","真空投入":"△"},
+  "アイン":{"はつり":"△"}, "ティ":{"はつり":"△"}, "ハン":{"はつり":"○"}, "ハリマン":{"はつり":"○"}, "ノファ":{"はつり":"△"},
+  "アリス":{"はつり":"○","箱織":"○"}, "髙木":{"はつり":"○","ピロー投入":"○"}, "山隈":{"箱入れ":"○","はつり":"△"},
+  "米谷":{"パレット":"○","はつり":"△"}, "カオ":{"はつり":"○"}, "津村":{"はつり":"○"}, "竹崎":{"はつり":"○","真空投入":"○"},
+  "池田":{"はつり":"△"}, "細川":{"はつり":"○"}, "藤本":{"はつり":"○"}, "梅野":{"パレット":"△","はつり":"×"},
+  "坂本":{"箱織":"△","はつり":"×"}, "フエン":{"はつり":"○"}, "曽我":{"はつり":"×"}, "木ノ下":{"箱入れ":"△","はつり":"×"}
+};
+workers.forEach(w=>{ if(SAMPLE[w.name]) Object.assign(skills[w.id], SAMPLE[w.name]); });
+
+// 配置優先（力量表のマス）＝優先番号 / '×'=不可 / ''=空欄。同じ番号は自動配置でランダム。
+// 初期値は力量(○/△/×)から作る：○→1, △→2, ×→'×', 空欄→''（あとから数字を自由に編集できる）
+let prio = {};
+function seedPrioFromLevel_(v){ return v==='○'?'1': v==='△'?'2': v==='×'?'×': ''; }
+function initPrioFromSkills_(){
+  prio = {};
+  workers.forEach(w=>{ prio[w.id] = {}; ZONES.forEach(z=> prio[w.id][z.skill] = seedPrioFromLevel_((skills[w.id]||{})[z.skill] || '')); });
+}
+initPrioFromSkills_();
+
+// pin: workerId -> zoneId（固定配置）
+let pinned = {};
+// assignment: zoneId -> [workerId,...]（配列の並び順＝slotsのインデックスに対応）
+let assignment = {};
+// ② 本日オフのゾーン（真空/シュリンク等）＝{zoneId:true}。電子黒板の左トグルから来る。オフ＝定員0で自動配置から外す。
+var offZones = {};
+ZONES.forEach(z=> assignment[z.id] = []);
+
+/* ===================== タブ切替 ===================== */
+function switchTab(name, btn){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('panel-'+name).classList.add('active');
+  if(name==='skill') renderSkillTable();
+  if(name==='settei') renderZoneSettings();
+}
+
+/* ===================== ユーティリティ ===================== */
+function levelOf(workerId, skillKey){
+  const v = skills[workerId] ? skills[workerId][skillKey] : '';
+  if(v==='○') return 2; if(v==='△') return 1; if(v==='×') return -1; return 0;
+}
+function levelClass(lv){ return lv===2?'lvl-good': lv===1?'lvl-warn': lv===-1?'lvl-bad':'lvl-none'; }
+// センターシフトのセル文字（〇/休/午後休/午前休/時間指定 等）→ バッジのHTML
+function shiftBadgeHtml(w){
+  const s = (w && w.shiftStatus) ? String(w.shiftStatus).trim() : '';
+  if(!s) return '';
+  let cls = 's-time';
+  if(s==='〇' || s==='○' || s==='◯') cls = 's-on';
+  else if(s==='休' || s.indexOf('欠')>=0) cls = 's-off';
+  else if(s.indexOf('午後')>=0 || s.indexOf('午前')>=0 || s.indexOf('半')>=0) cls = 's-half';
+  return `<span class="shift-badge ${cls}">${s}</span>`;
+}
+function zoneOf(workerId){
+  for(const z of ZONES){ if(assignment[z.id].includes(workerId)) return z.id; }
+  return null;
+}
+function isAssigned(workerId){ return zoneOf(workerId)!==null; }
+function worker(id){ return workers.find(w=>w.id===id); }
+function capacityOf(z){ if(offZones && offZones[z.id]) return 0; return (typeof z._capacity === 'number') ? z._capacity : z.slots.length; }
+// トグル（真空/ピロー なし）に左右されない“設定上の枠数”。ゾーン設定の表示・保存はこちらを使う（capacityOfだとオフ時に0が保存され、あり時も0枠に固定されてしまう）。
+function rawCapacityOf(z){ return (typeof z._capacity === 'number') ? z._capacity : z.slots.length; }
+// ローカル保存（単体HTMLで開いたとき用）。電子黒板に埋め込むとsrcdocはlocalStorage不可で例外→自動的にno-op＝従来どおり親（電子黒板）経由の保存にフォールバック。
+var TOOL_LS_OK = false; try{ if(window.localStorage){ window.localStorage.getItem('_haichi_probe'); TOOL_LS_OK = true; } }catch(_e){ TOOL_LS_OK = false; }
+function lsGet_(k){ if(!TOOL_LS_OK) return null; try{ var v = window.localStorage.getItem(k); return v ? JSON.parse(v) : null; }catch(_e){ return null; } }
+function lsSet_(k,v){ if(!TOOL_LS_OK) return; try{ window.localStorage.setItem(k, JSON.stringify(v)); }catch(_e){} }
+/* ===== 🔮 予測モード（電子黒板の「配置図（予測）」タブ）=====
+   予測タブは この haichi.html を ?mode=plan で開く。対象日（明日以降）は親（電子黒板）から
+   centerLiveData の planDate（YYYY-MM-DD）で届く。当日ぶんの控え（ロック・出勤チェック・工程オフ・
+   配置）と混ざらないよう、保存キーと親へ送る通知に mode/planDate を必ず付ける。
+   ＝既定（当日モード）の動きはこれまでと一切変わらない。 */
+var HAICHI_MODE = 'today', PLAN_DATE = '';
+try{ if(/[?&]mode=plan(&|$)/.test(location.search)) HAICHI_MODE = 'plan'; }catch(_e){}
+var IS_PLAN = (HAICHI_MODE === 'plan');
+function planDateObj_(){
+  if(IS_PLAN && /^\d{4}-\d{2}-\d{2}$/.test(PLAN_DATE)){
+    var p = PLAN_DATE.split('-');
+    return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  }
+  return new Date();
+}
+// 親（電子黒板）へ送るメッセージには必ずモードと対象日を添える＝親が当日ぶんと予測ぶんを取り違えない
+function postParent_(msg){
+  try{
+    if(window.parent && window.parent !== window){
+      msg.mode = HAICHI_MODE; msg.planDate = PLAN_DATE;
+      window.parent.postMessage(msg, '*');
+    }
+  }catch(_e){}
+}
+// 当日は今日、予測は対象日でキーを分ける（ロック・工程オフの控え用）
+function toolDateKey_(){ var d = planDateObj_(); return (IS_PLAN ? 'plan/' : '') + d.getFullYear()+'/'+(d.getMonth()+1)+'/'+d.getDate(); }
+// 🔮 予測モード：帯に対象日を出す（当日モードでは何もしない）
+function planUpdateHeader_(){
+  if(!IS_PLAN) return;
+  var el = document.getElementById('plan-banner'); if(!el) return;
+  var has = /^\d{4}-\d{2}-\d{2}$/.test(PLAN_DATE);
+  var d = planDateObj_(), W = '日月火水木金土';
+  el.style.display = '';
+  el.innerHTML = has
+    ? ('🔮 <b>' + d.getFullYear() + '年' + (d.getMonth()+1) + '月' + d.getDate() + '日（' + W.charAt(d.getDay()) + '）</b> の配置（予測）'
+       + '<span class="pb-note">シフト表の予定から自動で配置しています。人を動かすとこの日ぶんとして保存され、全PC（液晶）で同じ予測が見られます。当日の配置図には影響しません。</span>')
+    : ('🔮 配置（予測）<span class="pb-note">上の日付を選ぶと、その日のシフトから予測の配置を表示します。</span>');
+}
+window.addEventListener('DOMContentLoaded', function(){
+  if(!IS_PLAN) return;
+  try{
+    document.body.classList.add('plan-mode');
+    var h1 = document.querySelector('header h1'); if(h1) h1.textContent = '㈱カワカミ蓮根　センター配置図（予測）';
+    var hp = document.querySelector('header p'); if(hp) hp.textContent = '明日以降のシフト（予定）から、その日の配置を先に見られます。当日の配置図とは別に保存されます。';
+    var zt = document.querySelector('#zone-off-panel .zop-ttl'); if(zt) zt.textContent = 'この日の工程';
+    var ln = document.getElementById('lock-note'); if(ln) ln.textContent = '予測が決まったら「確認」でロック';
+    // ゾーン設定（枠数・ゾーン優先度）は全日共通の恒久設定なので、予測画面からは触らせない
+    var zs = document.querySelector('.tab-btn[data-tab="settei"]'); if(zs) zs.style.display = 'none';
+  }catch(_e){}
+  planUpdateHeader_();
+});
+
+/* ② 確認（ロック）：配置が決まったら「確認」でロック。ロック中は午前/午後の切替・画像保存だけ可、
+   配置の変更（人の移動・入替・自動配置・工程トグル）は不可。もう一度押すと編集に戻る。
+   状態はこのPCに当日だけ保存（翌日は自動で編集に戻る）。 */
+var HAICHI_LOCKED = false;
+function haichiLockKey_(){ return 'haichi_locked_' + toolDateKey_(); }
+function haichiApplyLockUI_(){
+  var btn = document.getElementById('lock-btn'), note = document.getElementById('lock-note');
+  if(btn){ btn.textContent = HAICHI_LOCKED ? '🔒 確認（ロック中）' : '✏️ 編集中'; btn.classList.toggle('locked', HAICHI_LOCKED); }
+  if(note){ note.textContent = HAICHI_LOCKED ? 'ロック中：もう一度押すと編集できます' : '配置を決めたら「確認」でロック'; }
+  try{ document.body.classList.toggle('haichi-locked', HAICHI_LOCKED); }catch(_e){}
+}
+function haichiToggleLock_(){ HAICHI_LOCKED = !HAICHI_LOCKED; lsSet_(haichiLockKey_(), HAICHI_LOCKED ? 1 : 0); haichiApplyLockUI_(); }
+// 編集操作のガード：ロック中は false（＝操作をキャンセル）＋ロックボタンを少し光らせて気づかせる。
+function haichiEditAllowed_(){
+  if(!HAICHI_LOCKED) return true;
+  var b = document.getElementById('lock-btn');
+  if(b){ b.style.transition = 'transform .1s'; b.style.transform = 'scale(1.07)'; setTimeout(function(){ b.style.transform = ''; }, 150); }
+  return false;
+}
+// 自動配置ボタン（ユーザー操作）はロック中は無効。setSlot等の内部呼び出しは従来どおり動く。
+function haichiUserAutoAssign_(){ if(!haichiEditAllowed_()) return; autoAssign('pattern'); }
+window.addEventListener('DOMContentLoaded', function(){ HAICHI_LOCKED = !!lsGet_(haichiLockKey_()); haichiApplyLockUI_(); });
+// 配置優先のマス値：workerId × skillKey → 数値(優先番号) / '×'(不可) / ''(空欄)
+function prioRaw(wid, skillKey){ return (prio[wid] && prio[wid][skillKey]!=null) ? String(prio[wid][skillKey]).trim() : ''; }
+function prioNumOf(wid, skillKey){ const v = prioRaw(wid, skillKey); if(v==='' || /^[×xX]$/.test(v)) return null; const n = parseInt(v.replace(/[^0-9]/g,''),10); return (!isNaN(n) && n>0) ? n : null; }
+function isBlockedCell_(wid, skillKey){ return /^[×xX]$/.test(prioRaw(wid, skillKey)); }
+// 配置枠の丸の色：優先番号あり＝緑／×＝赤／空欄＝青
+function chipClass_(wid, skillKey){ if(isBlockedCell_(wid, skillKey)) return 'lvl-bad'; if(prioNumOf(wid, skillKey)!==null) return 'lvl-good'; return 'lvl-none'; }
+// 候補を「優先番号の小さい順、同じ番号はランダム」で並べる（mode==='random'は全体ランダム）
+function sortByPrioThenRandom_(cands, skillKey, mode){
+  if(mode==='random') return shuffle(cands.slice());
+  const groups = {};
+  cands.forEach(w=>{ const n = prioNumOf(w.id, skillKey); (groups[n]=groups[n]||[]).push(w); });
+  const nums = Object.keys(groups).map(Number).sort((a,b)=>a-b);
+  let out = [];
+  nums.forEach(n=>{ out = out.concat(shuffle(groups[n].slice())); });   // 同じ番号はランダム
+  return out;
+}
+// ゾーン設定で人数を増やした場合の追加枠の座標（ラベルの下に自動で並べる）
+function slotPos(z, idx){
+  if(idx < z.slots.length) return z.slots[idx];
+  const extra = idx - z.slots.length;
+  return { left: Math.min(96, z.labelPos.left - 8 + (extra%6)*7), top: Math.min(97, z.labelPos.top + 10 + Math.floor(extra/6)*9) };
+}
+
+/* ===================== 配置図 描画（写真そのままレイアウト） ===================== */
+function renderBoard(){
+  const board = document.getElementById('board-photo');
+  board.innerHTML = '';
+
+  // プール領域（ビス置き場）
+  const poolEl = document.createElement('div');
+  poolEl.className = 'pool-region';
+  poolEl.style.left = POOL_REGION.left+'%'; poolEl.style.top = POOL_REGION.top+'%';
+  poolEl.style.width = POOL_REGION.width+'%'; poolEl.style.height = POOL_REGION.height+'%';
+  poolEl.innerHTML = `<div class="cap-label">ビス置き場（未配置）</div><div class="flow" id="pool-flow"></div>`;
+  board.appendChild(poolEl);
+
+  ZONES.forEach(z=>{
+    const lbl = document.createElement('div');
+    lbl.className = 'zone-label';
+    lbl.style.left = z.labelPos.left+'%'; lbl.style.top = z.labelPos.top+'%';
+    lbl.textContent = z.label;
+    board.appendChild(lbl);
+
+    const cap = capacityOf(z);
+    for(let i=0;i<cap;i++){
+      const pos = slotPos(z,i);
+      const wid = assignment[z.id][i];
+      const slot = document.createElement('div');
+      slot.className = 'slot-abs'; slot.dataset.zone = z.id; slot.dataset.idx = i;
+      slot.style.left = pos.left+'%'; slot.style.top = pos.top+'%';
+      if(wid){
+        const w = worker(wid);
+        slot.classList.add('filled', chipClass_(wid, z.skill)); slot.dataset.wid = wid;
+        slot.innerHTML = w.name + (pinned[wid]===z.id ? '<span class="pin">⭐</span>' : '');
+        slot.onclick = ()=> openWorkerMenu(wid);
+      } else {
+        slot.textContent = '空き';
+        slot.onclick = ()=> openSlotMenu(z.id, i);
+      }
+      board.appendChild(slot);
+    }
+  });
+
+  renderPool();
+  renderZoneToggles_();   // ② タブ下・板の上のパネルにトグルを描画（板の中には描かない）
+  updateStats();
+  /* SAVE_LAYOUT_HOOK */ if(typeof _restoringLayout !== 'undefined' && !_restoringLayout && typeof saveLayout === 'function') saveLayout();
+}
+
+/* ② 「本日の工程（真空/ピロー あり・なし）」トグル＝#zop-body に表示。板の中には描かない。
+   真空＝真空投入＋真空箱入れ、ピロー＝ピロー投入＋ピロー箱入れ をまとめてオン/オフ。なし＝定員0で自動配置から外す（翌日リセット）。 */
+var OFF_GROUPS = { shinku:['shinku','shinku_box'], pillow:['shrink','pillow_box'] };
+function renderZoneToggles_(){
+  var body = document.getElementById('zop-body');
+  if(!body) return;
+  body.innerHTML = zoneOffRow_('shinku','真空') + zoneOffRow_('pillow','ピロー');
+}
+function zoneOffRow_(gid, label){
+  var ids = OFF_GROUPS[gid] || [gid];
+  var off = ids.some(function(id){ return !!offZones[id]; });
+  return '<div class="zop-row"><div class="zop-name">' + label + '</div>'+
+    '<div class="zop-btns">'+
+      '<button class="zop-btn on'  + (off?'':' sel') + '" onclick="toggleOffGroup_(\'' + gid + '\',true)">あり</button>'+
+      '<button class="zop-btn off' + (off?' sel':'') + '" onclick="toggleOffGroup_(\'' + gid + '\',false)">なし</button>'+
+    '</div></div>';
+}
+function toggleOffGroup_(gid, on){
+  if(!haichiEditAllowed_()) return;   // ② ロック中は工程トグルも不可
+  var ids = OFF_GROUPS[gid] || [gid];
+  ids.forEach(function(id){ if(on) delete offZones[id]; else offZones[id] = true; });
+  lsSet_('haichi_tool_offzones_'+toolDateKey_(), offZones);   // 単体で開いたとき用（本日分・翌日は自動で消える）
+  try{ autoAssign('pattern'); }catch(e){}
+  try{ if(typeof saveLayout === 'function') saveLayout(); }catch(e){}
+  postCenterResult_();
+  postParent_({ type:'centerOffZones', off: offZones });
+}
+
+function renderPool(){
+  const el = document.getElementById('pool-flow');
+  if(!el) return;
+  el.innerHTML = '';
+  workers.filter(w=>!isAssigned(w.id)).forEach(w=>{
+    const chip = document.createElement('div');
+    chip.className = 'pool-chip'; chip.dataset.wid = w.id;
+    chip.innerHTML = w.name + (w.attend? '' : '<br><span style="color:var(--red);font-size:9px;">欠勤</span>') + (pinned[w.id] ? ' ⭐' : '');
+    chip.onclick = ()=> openWorkerMenu(w.id);
+    el.appendChild(chip);
+  });
+}
+
+function updateStats(){
+  const assignedCount = Object.values(assignment).reduce((s,a)=>s+a.length,0);
+  const cap = ZONES.reduce((s,z)=>s+capacityOf(z),0);
+  document.getElementById('stat-assigned').textContent = assignedCount;
+  document.getElementById('stat-capacity').textContent = cap;
+  document.getElementById('stat-pool').textContent = workers.length - assignedCount;
+  document.getElementById('stat-attend').textContent = workers.filter(w=>w.attend).length;
+}
+
+/* ===================== モーダル：配置済みの人 ===================== */
+function openWorkerMenu(wid){
+  if(!haichiEditAllowed_()) return;   // ② ロック中は人の移動メニューを開かない
+  const w = worker(wid);
+  const curZone = zoneOf(wid);
+  const modal = document.getElementById('modal');
+  const zoneOptions = ZONES.map(z=>{
+    const room = capacityOf(z) - assignment[z.id].length + (z.id===curZone?1:0);
+    const pn = prioNumOf(wid, z.skill);
+    const warn = isBlockedCell_(wid, z.skill) ? '（×不可）' : (pn!==null ? '（優先'+pn+'）' : '');
+    return `<option value="${z.id}" ${room<=0?'disabled':''}>${z.label}　空き${room}${warn}</option>`;
+  }).join('');
+  const others = curZone ? assignment[curZone].filter(id=>id!==wid).map(id=>`<option value="${id}">${worker(id).name}</option>`).join('') : '';
+  modal.innerHTML = `
+    <h4>${w.name} さん</h4>
+    <div class="sub">現在：${curZone ? ZONES.find(z=>z.id===curZone).label : 'ビス置き場（未配置）'}</div>
+    <label style="font-size:12px;color:var(--text2);">移動先ゾーン</label>
+    <select id="mv-zone">${zoneOptions}</select>
+    <div class="row">
+      <button class="btn-move" onclick="doMove('${wid}')">この場所に移動</button>
+      ${curZone && others ? `<button class="btn-swap" onclick="openSwap('${wid}')">同じゾーン内で入替</button>` : ''}
+    </div>
+    <div class="row">
+      <button class="btn-pin" onclick="togglePin('${wid}')">${pinned[wid] ? '固定を解除' : '⭐ この場所に固定する'}</button>
+      ${curZone ? `<button class="btn-unassign" onclick="doUnassign('${wid}')">ビス置き場に戻す</button>` : ''}
+    </div>
+    <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;margin-top:12px;">
+      <input type="checkbox" class="att-toggle" id="mv-attend" ${w.attend?'checked':''} onchange="toggleAttend('${wid}')"> 本日出勤する
+    </label>
+    <button class="btn-close" onclick="closeModal()">閉じる</button>
+  `;
+  showModal();
+}
+
+function openSlotMenu(zoneId, idx){
+  if(!haichiEditAllowed_()) return;   // ② ロック中は空き枠メニューを開かない
+  const z = ZONES.find(z=>z.id===zoneId);
+  const modal = document.getElementById('modal');
+  const candidates = workers.filter(w=>!isAssigned(w.id) && w.attend)
+    .sort((a,b)=>{ const pa=prioNumOf(a.id,z.skill), pb=prioNumOf(b.id,z.skill);
+      if(pa===null && pb===null) return 0; if(pa===null) return 1; if(pb===null) return -1; return pa-pb; });
+  const opts = candidates.map(w=>{
+    const pn = prioNumOf(w.id, z.skill);
+    const tag = isBlockedCell_(w.id, z.skill) ? '×不可' : (pn!==null ? '優先'+pn : '―');
+    return `<option value="${w.id}">${w.name}（${tag}）</option>`;
+  }).join('');
+  modal.innerHTML = `
+    <h4>${z.label}　空き枠に配置</h4>
+    <div class="sub">ビス置き場（未配置）の人（力量が高い順）から選んでください</div>
+    <select id="pick-worker">${opts || '<option disabled>未配置の出勤者がいません</option>'}</select>
+    <div class="row">
+      <button class="btn-move" onclick="doAssignFromSlot('${zoneId}')">配置する</button>
+    </div>
+    <button class="btn-close" onclick="closeModal()">閉じる</button>
+  `;
+  showModal();
+}
+
+function openSwap(wid){
+  const curZone = zoneOf(wid);
+  const others = assignment[curZone].filter(id=>id!==wid);
+  const modal = document.getElementById('modal');
+  modal.innerHTML = `
+    <h4>${worker(wid).name} さんと入れ替え</h4>
+    <div class="sub">${ZONES.find(z=>z.id===curZone).label} 内の別の人</div>
+    <select id="swap-target">${others.map(id=>`<option value="${id}">${worker(id).name}</option>`).join('')}</select>
+    <div class="row"><button class="btn-swap" onclick="doSwap('${wid}')">入れ替える</button></div>
+    <button class="btn-close" onclick="closeModal()">閉じる</button>
+  `;
+  showModal();
+}
+
+function showModal(){ document.getElementById('overlay').classList.add('show'); }
+function closeModal(){ document.getElementById('overlay').classList.remove('show'); }
+
+function doMove(wid){
+  const zoneId = document.getElementById('mv-zone').value;
+  removeFromAllZones(wid);
+  assignment[zoneId].push(wid);
+  closeModal(); renderBoard();
+}
+function doAssignFromSlot(zoneId){
+  const sel = document.getElementById('pick-worker');
+  if(!sel || !sel.value) { closeModal(); return; }
+  removeFromAllZones(sel.value);
+  assignment[zoneId].push(sel.value);
+  closeModal(); renderBoard();
+}
+function doUnassign(wid){ removeFromAllZones(wid); closeModal(); renderBoard(); }
+function doSwap(wid){
+  const targetId = document.getElementById('swap-target').value;
+  const zoneId = zoneOf(wid);
+  const arr = assignment[zoneId];
+  const i1 = arr.indexOf(wid), i2 = arr.indexOf(targetId);
+  arr[i1]=targetId; arr[i2]=wid;
+  closeModal(); renderBoard();
+}
+function togglePin(wid){
+  const cur = zoneOf(wid);
+  if(pinned[wid]){ delete pinned[wid]; }
+  else if(cur){ pinned[wid] = cur; } else { alert('先にゾーンへ配置してから固定してください'); return; }
+  closeModal(); renderBoard();
+}
+function toggleAttend(wid){
+  setWorkerAttend(wid, document.getElementById('mv-attend').checked);
+}
+function removeFromAllZones(wid){
+  ZONES.forEach(z=>{ assignment[z.id] = assignment[z.id].filter(id=>id!==wid); });
+}
+
+/* ===================== ② 午前／午後（時間帯）トグル =====================
+   午前休・午後休のアルバイトさんを、その時間帯だけ自動配置から外す。
+   ・出勤するかどうかの“素”は w._baseAttend（シフト＝〇/欠、または手動チェック）に持つ。
+   ・実際に配置対象にするか（w.attend）＝ _baseAttend かつ「今の時間帯に休みでない」。
+   ・午前を選ぶと『午前休』の人を外す／午後を選ぶと『午後休』の人を外す。半休(午前休/午後休)以外は両方出勤。 */
+var CUR_SLOT = 'AM';
+function slotOff_(w){
+  var s = String(w && w.shiftStatus || '').trim(); if(!s) return false;
+  // 「午前休」＝午前は休み（午後は出勤） ／「午後休」＝午後は休み（午前は出勤）
+  var offAM = s.indexOf('午前休') >= 0 || (s.indexOf('午前') >= 0 && s.indexOf('休') >= 0);
+  var offPM = s.indexOf('午後休') >= 0 || (s.indexOf('午後') >= 0 && s.indexOf('休') >= 0);
+  return (CUR_SLOT === 'AM') ? offAM : offPM;
+}
+// 全員の w.attend を「素の出勤 × 今の時間帯に休みでない」で計算し直す
+function applySlotAttend_(){
+  workers.forEach(function(w){
+    if(w._baseAttend === undefined) w._baseAttend = w.attend;   // 初回はいまの値を素とみなす
+    w.attend = !!w._baseAttend && !slotOff_(w);
+  });
+}
+/* ===== ⑥ 出勤チェックを外したら、その日はもう配置に戻さない =====
+   これまでは、30秒ごとのシフト再取得（applyLiveData）のたびに workers を作り直して
+   シフトの〇でattendを上書きしていたため、チェックを外した人が配置に復活していた。
+   → 外した人を _absentOvr（氏名ベース）に控え、シフト反映の“後”に必ず欠勤へ落とす。
+   　 当日限り（日付キー）。電子黒板経由でクラウド共有＝全PCの液晶で同じ状態になる。 */
+var _absentOvr = {};                        // { 正規化氏名: true }
+function absentKey_(){ var t=planDateObj_(); return (IS_PLAN ? 'haichi_plan_absent_' : 'haichi_absent_') + t.getFullYear() + '-' + (t.getMonth()+1) + '-' + t.getDate(); }
+function absentLoadLocal_(){ try{ var v=JSON.parse(localStorage.getItem(absentKey_())); if(v && typeof v==='object') _absentOvr = absentNormMap_(v); }catch(e){} }
+function absentNormMap_(map){
+  var out = {};
+  Object.keys(map || {}).forEach(function(k){ if(!map[k]) return; var nk = normNameC_(k); if(nk) out[nk] = true; });
+  return out;
+}
+function absentSaveLocal_(){ try{ localStorage.setItem(absentKey_(), JSON.stringify(_absentOvr)); }catch(e){} }
+function isAbsentOvr_(w){
+  var h = normNameC_(w && w.name);
+  if(!h) return false;
+  var keys = Object.keys(_absentOvr);
+  for(var i=0;i<keys.length;i++){ if(nameMatchC_(keys[i], h)) return true; }
+  return false;
+}
+// シフト反映の後に呼ぶ：チェックを外した人を欠勤へ落として未配置に戻す
+function applyAbsentOverride_(){
+  if(!Object.keys(_absentOvr).length) return;
+  workers.forEach(function(w){
+    if(isAbsentOvr_(w)){ w._baseAttend = false; w.attend = false; removeFromAllZones(w.id); }
+  });
+}
+// 親（電子黒板）へ「今日チェックを外した人」を通知＝クラウド保存＆他PCへ配信
+function postAbsentToParent_(){
+  try{
+    if(window.parent && window.parent !== window){
+      postParent_({ type:'centerAbsent', absent:_absentOvr });
+    }
+  }catch(_e){}
+}
+// 出勤チェックの切り替えは“素の出勤”を更新→時間帯を加味して反映（1か所に集約）
+function setWorkerAttend(wid, on){
+  var w = worker(wid); if(!w) return;
+  w._baseAttend = !!on;
+  w.attend = w._baseAttend && !slotOff_(w);
+  if(!w.attend) removeFromAllZones(wid);
+  // ⑥ 外した／戻したを当日ぶん記憶（シフト再取得で復活させないため）
+  var nk = normNameC_(w.name);
+  if(nk){
+    if(on){ Object.keys(_absentOvr).forEach(function(k){ if(nameMatchC_(k, nk)) delete _absentOvr[k]; }); }
+    else { _absentOvr[nk] = true; }
+    absentSaveLocal_();
+    postAbsentToParent_();
+  }
+  renderBoard();
+  postCenterResult_();
+}
+// 午前／午後ボタン：押した時間帯の配置を表示する（真空/ピローのトグルと同じ操作感）
+//   ・切替前に「今の時間帯」の配置を控える → 別の時間帯へ切替 → その時間帯の保存済み配置を復元（無ければ自動配置）。
+//   ・午前と午後は別々に記憶されるので、行き来しても互いの配置は崩れない。
+function setSlot(slot){
+  var next = (slot === 'PM') ? 'PM' : 'AM';
+  if(next === CUR_SLOT){ paintSlotButtons_(); return; }
+  _slotLayouts[CUR_SLOT] = currentLayoutByName();   // 今の時間帯の配置を控える
+  CUR_SLOT = next;
+  var hid = document.getElementById('save-ampm'); if(hid) hid.value = CUR_SLOT;
+  paintSlotButtons_();
+  applySlotAttend_();                                // 新しい時間帯の出勤（午前休/午後休を差し引く）
+  ZONES.forEach(function(z){ assignment[z.id] = []; });   // いったん全部おろす
+  // 固定(⭐)の出勤者を先に戻す
+  workers.forEach(function(w){
+    if(w.attend && pinned[w.id]){
+      for(var k=0;k<ZONES.length;k++){ var z=ZONES[k]; if(z.id===pinned[w.id]){ if(assignment[z.id].indexOf(w.id)<0 && assignment[z.id].length<capacityOf(z)) assignment[z.id].push(w.id); break; } }
+    }
+  });
+  var sl = _slotLayouts[CUR_SLOT];
+  var has = sl && Object.keys(sl).some(function(k){ return sl[k] && sl[k].length; });
+  if(has){ applyLayoutByName(sl); if(typeof placeFreshNextToVets_==='function') placeFreshNextToVets_(); }   // その時間帯の保存済み配置を復元
+  else { try{ autoAssign('pattern'); }catch(_e){} }                                                          // 初めての時間帯は自動配置
+  workers.forEach(function(w){ if(!w.attend) removeFromAllZones(w.id); });   // その時間帯に休みの人は未配置へ
+  renderBoard();
+  try{ if(typeof saveLayout === 'function') saveLayout(); }catch(_e){}
+  postCenterResult_();
+}
+function paintSlotButtons_(){
+  var ba = document.getElementById('btn-am'), bp = document.getElementById('btn-pm');
+  if(ba) ba.classList.toggle('sel', CUR_SLOT==='AM');
+  if(bp) bp.classList.toggle('sel', CUR_SLOT==='PM');
+}
+
+/* ===================== 自動配置 / ランダム配置 =====================
+   力量表のマス＝配置優先番号（小さいほど先）。各場所を、その列の番号順に埋める。
+   同じ番号はランダム。×・空欄はその場所に自動配置しない。 */
+function autoAssign(mode){
+  // pinned以外を一旦クリア
+  ZONES.forEach(z=>{ assignment[z.id] = assignment[z.id].filter(id=> pinned[id]===z.id); });
+
+  const zonesSorted = [...ZONES].sort((a,b)=>a.priority-b.priority);
+  zonesSorted.forEach(z=>{
+    let room = capacityOf(z) - assignment[z.id].length;
+    if(room<=0) return;
+    // この場所に番号が入っている人（出勤・未配置）だけが候補。×・空欄は対象外。
+    let cands = workers.filter(w=> w.attend && !isAssigned(w.id) && prioNumOf(w.id, z.skill)!==null);
+    cands = sortByPrioThenRandom_(cands, z.skill, mode);   // 番号昇順・同番号ランダム
+    cands.slice(0, room).forEach(w=>{ assignment[z.id].push(w.id); });
+  });
+
+  // 新しい人（未評価＝番号も×も無い人）は残ったコンベア枠へ（村中/平田の隣）。番号配置の後なので番号が優先。
+  if(typeof preplaceVetsAndFresh_ === 'function') preplaceVetsAndFresh_();
+  renderBoard();
+}
+function shuffle(arr){
+  for(let i=arr.length-1;i>0;i--){
+    const j = Math.floor(pseudoRandom()*(i+1));
+    [arr[i],arr[j]]=[arr[j],arr[i]];
+  }
+  return arr;
+}
+let seed = 42;
+function pseudoRandom(){ seed = (seed*1664525+1013904223) % 4294967296; return seed/4294967296; }
+
+function clearAll(){
+  ZONES.forEach(z=> assignment[z.id]=[]);
+  pinned = {};
+  renderBoard();
+}
+
+/* ===================== 力量表タブ ===================== */
+function renderSkillTable(){
+  const table = document.getElementById('skill-table');
+  let html = '<thead><tr><th>出勤（シフト）</th><th class="name">氏名</th>' + ZONES.map(z=>`<th>${z.label.replace('（はつり）','')}</th>`).join('') + '</tr></thead><tbody>';
+  workers.forEach(w=>{
+    html += `<tr><td class="att-cell"><label><input type="checkbox" class="att-toggle" ${w.attend?'checked':''} onchange="setWorkerAttend('${w.id}', this.checked)">${shiftBadgeHtml(w)}</label></td>`;
+    html += `<td class="name">${w.name}</td>`;
+    ZONES.forEach(z=>{
+      // ① 閲覧専用：配置優先シートの“優先番号”を表示（力量表○×からの初期値も反映）。編集は配置優先シートで。
+      const v = prioRaw(w.id, z.skill);
+      const cls = isBlockedCell_(w.id, z.skill) ? 'pcell-x' : (prioNumOf(w.id, z.skill)!==null ? 'pcell-n' : 'pcell-blank');
+      html += `<td class="cell ${cls}"><span class="prio-cell ro" style="display:block;text-align:center;font-weight:800;">${v!==''?v:'―'}</span></td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody>';
+  table.innerHTML = html;
+  var _ssn = document.getElementById('skill-sheet-note'); if(_ssn) _ssn.textContent = SKILL_SHEET_URL ? '' : '（スプレッドシートのURLが未設定です。管理者に設定を依頼してください）';
+}
+// ① 力量の編集はスプレッドシートの「力量表」で行う。URLは下の定数に貼り付け（未設定なら案内）。
+var SKILL_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1D0DPqy1chAdcBFyIczYtAJx7CJMTlevhlfxlO0HINGo/edit?gid=395555265#gid=395555265';   // センター力量表（曽我さん）
+function openSkillSheet(){
+  if(!SKILL_SHEET_URL){ alert('力量表スプレッドシートのURLが未設定です。\n担当が SKILL_SHEET_URL にURLを設定すると、ここから開けるようになります。'); return; }
+  window.open(SKILL_SHEET_URL, '_blank', 'noopener');
+}
+// 力量表のマスに入力：数字＝優先番号（小さいほど先）／「×」or「x」＝不可／空欄＝―。同じ番号は自動配置でランダム。（※現在は閲覧専用。編集はスプレッドシートで）
+function setPrioCell(wid, skillKey, val){
+  var s = String(val==null?'':val).trim();
+  var out;
+  if(s==='') out = '';
+  else if(/^[×xX]$/.test(s)) out = '×';
+  else { var n = parseInt(s.replace(/[^0-9]/g,''),10); out = (!isNaN(n) && n>0) ? String(n) : ''; }
+  if(!prio[wid]) prio[wid] = {};
+  prio[wid][skillKey] = out;
+  savePrio();          // 親（電子黒板）へ保存＝開き直し・更新でも維持
+  renderSkillTable();  // 色を更新
+}
+
+/* ===================== ゾーン設定タブ ===================== */
+function renderZoneSettings(){
+  const table = document.getElementById('zone-settings-table');
+  let html = '<thead><tr><th class="name">ゾーン名</th><th>枠数（人数）</th><th>ゾーン優先度<br><span style="font-weight:600;color:var(--muted);">小さいほど先に埋める</span></th><th>対応する力量列</th></tr></thead><tbody>';
+  ZONES.forEach((z,idx)=>{
+    html += `<tr>
+      <td class="name"><input value="${z.label}" style="width:100%;border:1px solid var(--grid);border-radius:5px;padding:5px;" onchange="ZONES[${idx}].label=this.value; renderBoard();"></td>
+      <td><input type="number" min="0" max="30" value="${rawCapacityOf(z)}" style="width:70px;text-align:center;" onchange="setCapacity(${idx}, parseInt(this.value)||0);"></td>
+      <td><input type="number" min="1" max="20" value="${z.priority}" style="width:60px;text-align:center;" onchange="ZONES[${idx}].priority=parseInt(this.value)||1; renderBoard(); if(typeof saveZoneCfg_==='function') saveZoneCfg_();"></td>
+      <td>${z.skill}</td>
+    </tr>`;
+  });
+  html += '</tbody>';
+  const capSum = ZONES.reduce((s,z)=>s+rawCapacityOf(z),0);
+  html += `<tfoot><tr><td class="name">合計</td><td style="text-align:center;font-weight:800;">${capSum} 枠</td><td></td><td></td></tr></tfoot>`;
+  table.innerHTML = html;
+}
+function setCapacity(idx, n){
+  const z = ZONES[idx];
+  n = Math.max(0, n||0);
+  z._capacity = n;
+  if(assignment[z.id].length > n) assignment[z.id] = assignment[z.id].slice(0, n);
+  renderBoard();
+  if(typeof saveZoneCfg_ === 'function') saveZoneCfg_();
+}
+
+/* ===================== 初期化 ===================== */
+// 単体で開いたとき：前回のゾーン設定（枠数・優先度）・配置優先（力量表のマス）・本日オフ工程をローカルから復元。
+// 電子黒板に埋め込んだときは localStorage 不可で lsGet_ が null を返す＝no-op＝親の centerLiveData 経由で復元（従来どおり）。
+(function restoreLocal_(){
+  if(!TOOL_LS_OK) return;
+  var zc = lsGet_('haichi_tool_zonecfg'); if(zc) applyZoneCfg_(zc);
+  var off = lsGet_('haichi_tool_offzones_'+toolDateKey_()); if(off && typeof off==='object') offZones = off;
+  var pr = lsGet_('haichi_tool_prio'); if(pr) applyPrioByName_(pr);
+})();
+try{ absentLoadLocal_(); }catch(e){}   // ⑥ 今日すでに出勤チェックを外した人を読み戻す（開き直し・再読込でも維持）
+autoAssign('pattern');
+renderBoard();
+/* CENTER_LIVE_DATA_RECEIVER */
+/* ===================== 電子黒板からの実データ受信（力量表＝haichi／本日出勤者＝shift） ===================== */
+// 親（電子黒板イメージ.html）が ?type=haichi（各人の○△×）と ?type=shift（本日出勤者）を取得して
+// postMessage で渡してくる。単体で開いたとき（親が無い／データが来ない）はサンプルのまま。
+// 氏名照合：力量表は短縮名（村中／カオ）、シフトはフルネーム（村中　健一／ｸﾞｴﾝ ｳﾞｧﾝ ｶｵ）で表記が違うため、
+// 半角カナ→全角カナ変換＋空白除去してから「どちらかがもう一方を含む」で突き合わせる。
+var CENTER_HK_ = {
+  'ｶﾞ':'ガ','ｷﾞ':'ギ','ｸﾞ':'グ','ｹﾞ':'ゲ','ｺﾞ':'ゴ','ｻﾞ':'ザ','ｼﾞ':'ジ','ｽﾞ':'ズ','ｾﾞ':'ゼ','ｿﾞ':'ゾ',
+  'ﾀﾞ':'ダ','ﾁﾞ':'ヂ','ﾂﾞ':'ヅ','ﾃﾞ':'デ','ﾄﾞ':'ド','ﾊﾞ':'バ','ﾋﾞ':'ビ','ﾌﾞ':'ブ','ﾍﾞ':'ベ','ﾎﾞ':'ボ',
+  'ﾊﾟ':'パ','ﾋﾟ':'ピ','ﾌﾟ':'プ','ﾍﾟ':'ペ','ﾎﾟ':'ポ','ｳﾞ':'ヴ',
+  'ｱ':'ア','ｲ':'イ','ｳ':'ウ','ｴ':'エ','ｵ':'オ','ｶ':'カ','ｷ':'キ','ｸ':'ク','ｹ':'ケ','ｺ':'コ',
+  'ｻ':'サ','ｼ':'シ','ｽ':'ス','ｾ':'セ','ｿ':'ソ','ﾀ':'タ','ﾁ':'チ','ﾂ':'ツ','ﾃ':'テ','ﾄ':'ト',
+  'ﾅ':'ナ','ﾆ':'ニ','ﾇ':'ヌ','ﾈ':'ネ','ﾉ':'ノ','ﾊ':'ハ','ﾋ':'ヒ','ﾌ':'フ','ﾍ':'ヘ','ﾎ':'ホ',
+  'ﾏ':'マ','ﾐ':'ミ','ﾑ':'ム','ﾒ':'メ','ﾓ':'モ','ﾔ':'ヤ','ﾕ':'ユ','ﾖ':'ヨ',
+  'ﾗ':'ラ','ﾘ':'リ','ﾙ':'ル','ﾚ':'レ','ﾛ':'ロ','ﾜ':'ワ','ｦ':'ヲ','ﾝ':'ン',
+  'ｧ':'ァ','ｨ':'ィ','ｩ':'ゥ','ｪ':'ェ','ｫ':'ォ','ｬ':'ャ','ｭ':'ュ','ｮ':'ョ','ｯ':'ッ','ｰ':'ー'
+};
+var CENTER_HK_RE_ = new RegExp('(' + Object.keys(CENTER_HK_).join('|') + ')', 'g');
+function normNameC_(s){
+  s = String(s || '').replace(CENTER_HK_RE_, function(m){ return CENTER_HK_[m]; }); // 半角カナ→全角カナ
+  s = s.replace(/[\s　]/g, '').trim();                                              // 全角/半角スペース除去
+  return s;
+}
+function nameMatchC_(a, b){ if(!a || !b) return false; return a.indexOf(b) >= 0 || b.indexOf(a) >= 0; }
+
+// 新しい人（力量表に○/△が1つも無い＝未評価）は基本コンベア（はつり）に、平田／村中の隣へ置く。
+function isFreshWorker_(wid){ return ZONES.every(function(z){ return levelOf(wid, z.skill) === 0; }); }  // 全て空欄＝未評価だけ新人（×は評価済みなので除外）
+function findWorkerIdByName_(name){
+  var key = normNameC_(name);
+  for(var i=0;i<workers.length;i++){ if(nameMatchC_(normNameC_(workers[i].name), key)) return workers[i].id; }
+  return null;
+}
+function conveyorZone_(){ for(var i=0;i<ZONES.length;i++){ if(ZONES[i].id === 'conveyor') return ZONES[i]; } return null; }
+// 自動配置の最初：空のコンベアへ「村中・新人・平田・新人…」の順で先取り（新人はベテランの隣＝ベルト向かい）
+function preplaceVetsAndFresh_(){
+  var cz = conveyorZone_(); if(!cz) return;
+  var cap = capacityOf(cz);
+  var vets = ['村中','平田'].map(findWorkerIdByName_).filter(function(id){ return id && worker(id) && worker(id).attend && pinned[id] === undefined && !isAssigned(id); });
+  var fresh = workers.filter(function(w){ return w.attend && isFreshWorker_(w.id) && pinned[w.id] === undefined && !isAssigned(w.id); });
+  if(!vets.length && !fresh.length) return;
+  var order = [], fi = 0;
+  vets.forEach(function(v){ order.push(v); if(fi < fresh.length) order.push(fresh[fi++].id); });   // 村中,新人,平田,新人
+  while(fi < fresh.length) order.push(fresh[fi++].id);                                              // 残りの新人
+  order.forEach(function(id){
+    if(isAssigned(id)) return;                       // 番号などで既に他ゾーンに配置済みなら触らない
+    if(assignment[cz.id].length >= cap) return;
+    assignment[cz.id].push(id);
+  });
+}
+// 保存レイアウト復元時の後処理：まだ未配置の新しい人だけ、コンベアのベテランの隣へ（空きがある時）
+function placeFreshNextToVets_(){
+  var cz = conveyorZone_(); if(!cz) return;
+  var cap = capacityOf(cz);
+  var fresh = workers.filter(function(w){ return w.attend && isFreshWorker_(w.id) && !isAssigned(w.id); });
+  if(!fresh.length) return;
+  var vets = ['村中','平田'].map(findWorkerIdByName_).filter(Boolean);
+  fresh.forEach(function(w){
+    var arr = assignment[cz.id];
+    if(arr.length >= cap) return;             // コンベアが満杯なら諦める（ビス置き場に残る）
+    var vi = -1;
+    for(var k=0;k<vets.length;k++){ var idx = arr.indexOf(vets[k]); if(idx >= 0){ vi = idx; break; } }
+    if(vi >= 0) arr.splice(vi + 1, 0, w.id);  // ベテランの隣に挿入
+    else arr.push(w.id);
+  });
+}
+
+// 力量表の「固定ゾーン」列＝その人を必ずそのゾーンへ配置（優先人員）。値はゾーン名（例:コンベア/真空/はつり）。
+var FIX_ZONE_COL = '固定ゾーン';
+function zoneIdFromName_(name){
+  if(!name) return null;
+  var v = String(name).replace(/[\s　（）\(\)]/g, '');
+  for(var i=0;i<ZONES.length;i++){
+    var z = ZONES[i];
+    var lab = z.label.replace(/[\s　（）\(\)]/g, '');
+    if(v === z.skill || v === z.id || v === lab || lab.indexOf(v) >= 0 || (z.skill && v.indexOf(z.skill) >= 0)) return z.id;
+  }
+  return null;
+}
+// 親から渡された保存済みゾーン設定（枠数・優先度）を反映
+function applyZoneCfg_(cfg){
+  if(!cfg) return;
+  // 旧ゾーン構成（真空/シュリンク等の7ゾーン）で保存された設定は、新構成（仕分け・真空箱入れ等を含む11ゾーン）と
+  // 枠数が合わず余分な枠（例：箱入れが3枠になる）が出るため無視する。新構成のキー（shiwake / shinku_box）が
+  // 無いものは旧設定とみなす。ゾーン設定を一度でも触れば新構成で保存され、以降は正しく反映される。
+  if(!('shiwake' in cfg) && !('shinku_box' in cfg)) return;
+  ZONES.forEach(function(z){
+    var c = cfg[z.id];
+    if(c){
+      if(typeof c.capacity === 'number') z._capacity = c.capacity;
+      if(typeof c.priority === 'number') z.priority = c.priority;
+    }
+  });
+}
+// ゾーン設定を変えたら親（電子黒板）へ送ってブラウザ保存してもらう（次回も維持）
+function saveZoneCfg_(){
+  var cfg = {};
+  // ← capacityOf(z) だと「真空なし」トグル中は0が保存され、あり時も0枠に固定されてしまう。設定上の枠数（rawCapacityOf）を保存する。
+  ZONES.forEach(function(z){ cfg[z.id] = { capacity: rawCapacityOf(z), priority: z.priority }; });
+  lsSet_('haichi_tool_zonecfg', cfg);   // 単体で開いたとき用（埋め込み時はno-op）
+  postParent_({ type:'centerZoneCfg', cfg: cfg });
+}
+// ===== 配置優先（力量表のマスの数字/×）の保存/復元 =====
+// prio は workerId×skill だが、保存は氏名ベース（開き直すと id が変わるため）。空欄は保存しない。
+function currentPrioByName(){
+  var out = {};
+  workers.forEach(function(w){ var m = {}; ZONES.forEach(function(z){ var v = prioRaw(w.id, z.skill); if(v!=='') m[z.skill] = v; }); out[w.name] = m; });
+  return out;
+}
+function savePrio(){
+  var pr = currentPrioByName();
+  lsSet_('haichi_tool_prio', pr);   // 単体で開いたとき用（埋め込み時はno-op）
+  postParent_({ type:'centerPrio', prio: pr });
+}
+// 保存済み(氏名→{skill:値})を現在の workers に反映（無いマスは力量ベースの初期値のまま）
+function applyPrioByName_(saved){
+  if(!saved) return;
+  workers.forEach(function(w){
+    var sv = saved[w.name]; if(!sv) return;
+    if(!prio[w.id]) prio[w.id] = {};
+    ZONES.forEach(function(z){ if(sv[z.skill]!=null && sv[z.skill]!=='') prio[w.id][z.skill] = String(sv[z.skill]); });
+  });
+}
+
+// ===== 手動配置の保存/復元（自動更新や開き直しで手動配置が消えないように） =====
+var _restoringLayout = false;
+var _liveReceived = false;   // 実データ受信前（初期サンプルautoAssign）は保存しない＝保存済み配置を潰さない
+var _slotLayouts = { AM:null, PM:null };   // ② 午前/午後それぞれの配置を別々に記憶（押した時間帯の配置を表示）
+// 今の配置を {ゾーンID:[氏名,...]} で返す（並び順も保持）
+function currentLayoutByName(){
+  var layout = {};
+  ZONES.forEach(function(z){ layout[z.id] = (assignment[z.id] || []).map(function(id){ var w = worker(id); return w ? w.name : null; }).filter(Boolean); });
+  return layout;
+}
+// 変更のたびに親（電子黒板）へ送ってブラウザ保存 → 更新・開き直しでも維持
+function saveLayout(){
+  if(_restoringLayout || !_liveReceived) return;
+  _slotLayouts[CUR_SLOT] = currentLayoutByName();   // ② 今の時間帯（午前/午後）の配置を控える
+  if(!(window.parent && window.parent !== window)) return;
+  // 午前・午後の両方をまとめて親（電子黒板）へ保存＝更新・開き直し・他PCでも各時間帯の配置が残る
+  postParent_({ type:'centerLayout', layout: { __ampm:true, AM:_slotLayouts.AM, PM:_slotLayouts.PM } });
+}
+// 保存された配置（氏名ベース）を、出勤者だけ・保存順で復元（欠勤/不在名は無視）
+function applyLayoutByName(layout){
+  var byName = {}; workers.forEach(function(w){ byName[w.name] = w; });
+  ZONES.forEach(function(z){
+    ((layout && layout[z.id]) || []).forEach(function(nm){
+      var w = byName[nm];
+      if(w && w.attend && !isAssigned(w.id) && assignment[z.id].length < capacityOf(z)) assignment[z.id].push(w.id);
+    });
+  });
+}
+function applyLiveData(payload){
+  try{
+    // 🔮 予測モード：対象日が変わったら、その日ぶんの控え（ロック・出勤チェック）に切り替え、前の日の配置は捨てる
+    if(IS_PLAN){
+      var _pd = String((payload && payload.planDate) || '');
+      if(_pd !== PLAN_DATE){
+        PLAN_DATE = _pd;
+        _slotLayouts = { AM:null, PM:null };
+        _absentOvr = {}; absentLoadLocal_();
+        HAICHI_LOCKED = !!lsGet_(haichiLockKey_()); haichiApplyLockUI_();
+      }
+      planUpdateHeader_();
+    }
+    var haichi = payload && payload.haichi;
+    var shift  = payload && payload.shift;
+    applyZoneCfg_(payload && payload.zoneCfg);   // 保存済みのゾーン設定（枠数・優先度）を先に反映
+    if(payload && payload.offZones) offZones = payload.offZones;   // ② 本日オフの工程（真空/シュリンク）を反映＝定員0
+    else if(payload && ('offZones' in payload)) offZones = {};
+    if(!(haichi && Array.isArray(haichi.people) && haichi.people.length)) return;  // 力量表データ未着なら配置はいじらない（初期サンプルのまま待つ／保存も汚さない）
+    _restoringLayout = true;
+    {
+      // 氏名リストを力量表基準で作り直す
+      workers = haichi.people.map(function(p,i){ return {id:'w'+i, name:p.name, attend:true, shiftStatus:''}; });
+      pinned = {};
+      skills = {};
+      workers.forEach(function(w){ skills[w.id] = {}; ZONES.forEach(function(z){ skills[w.id][z.skill]=''; }); });
+      // 力量○△×を反映（ZONEのskillキーと力量表の列見出しが一致する分だけ。力量表に無い列は空欄=未評価）
+      haichi.people.forEach(function(p,i){
+        var sk = p.skills || {};
+        ZONES.forEach(function(z){ if(sk[z.skill] !== undefined && sk[z.skill] !== '') skills['w'+i][z.skill] = sk[z.skill]; });
+        // 固定ゾーン列があれば、その人をそのゾーンへ固定（優先人員）
+        var fz = sk[FIX_ZONE_COL] ? String(sk[FIX_ZONE_COL]).trim() : '';
+        if(fz){ var zid = zoneIdFromName_(fz); if(zid) pinned['w'+i] = zid; }
+      });
+      ZONES.forEach(function(z){ assignment[z.id] = []; });
+      // 配置優先（力量表のマス）：まず力量(○→1/△→2/×→×)から初期値、次に保存済み(氏名ベース)を上書き
+      initPrioFromSkills_();
+      applyPrioByName_(payload && payload.prio);
+    }
+    if(shift && Array.isArray(shift.present) && shift.present.length){
+      // 本日出勤者だけ attend=true。氏名が一人も一致しない（表記が全く違う）ときは
+      // 全員欠勤で空の配置図になるのを防ぐため、出勤情報を適用しない。
+      var pres = shift.present.map(normNameC_).filter(function(x){ return x; });
+      var isOn = function(w){ var h = normNameC_(w.name); return pres.some(function(s){ return nameMatchC_(s, h); }); };
+      var anyMatch = workers.some(isOn);
+      if(anyMatch){ workers.forEach(function(w){ w.attend = isOn(w); }); }
+    }
+    // 🔮 予測モード：その日の出勤者が1人もいない（会社休み等）ときは、全員を未出勤にして空の配置図を出す。
+    //    （shift.present が空配列だと上の判定を素通りして全員出勤に見えてしまうため、親が noone を立てて知らせる）
+    if(payload && payload.noone){ workers.forEach(function(w){ w.attend = false; }); }
+    // ★ 応援（本日〇＝shift.support）：力量表に無いので、ここでフレッシュな作業者として追加する。
+    //   スキル空＝新人扱い＝自動配置で基本「はつり（コンベア）」へ入る（村中/平田の隣）。力量表は汚さない。
+    if(shift && Array.isArray(shift.support) && shift.support.length){
+      var haveKeysC = {};
+      workers.forEach(function(w){ var k = normNameC_(w.name); if(k) haveKeysC[k] = true; });
+      shift.support.forEach(function(nm){
+        nm = String(nm || '').trim(); if(!nm) return;
+        var nk = normNameC_(nm); if(nk && haveKeysC[nk]) return;   // 既に居る同名は重複させない
+        if(nk) haveKeysC[nk] = true;
+        var id = 'w' + workers.length;
+        workers.push({ id:id, name:nm, attend:true, shiftStatus:'応援', _support:true });
+        skills[id] = {}; ZONES.forEach(function(z){ skills[id][z.skill] = ''; });                 // スキル空＝フレッシュ＝はつり
+        prio[id] = {};   ZONES.forEach(function(z){ prio[id][z.skill] = seedPrioFromLevel_(''); });
+      });
+    }
+    // シフトのセル文字（〇/休/午後休/時間指定 等）を各人に反映＝力量表の出勤チェックの横に表示
+    if(shift && shift.status && typeof shift.status === 'object'){
+      var statusNorm = {};
+      Object.keys(shift.status).forEach(function(k){ var nk = normNameC_(k); if(nk) statusNorm[nk] = shift.status[k]; });
+      var statusKeys = Object.keys(statusNorm);
+      workers.forEach(function(w){
+        var h = normNameC_(w.name), found = '';
+        for(var si=0; si<statusKeys.length; si++){ if(nameMatchC_(statusKeys[si], h)){ found = statusNorm[statusKeys[si]]; break; } }
+        w.shiftStatus = found;
+      });
+    }
+    // ⑥ 出勤チェックを外した人（当日限り・全PC共有）＝シフトが〇でも配置に戻さない。
+    //    親（電子黒板）から届いた分をこのPCの控えとマージしてから、シフトの上に必ずかぶせる。
+    if(payload && payload.absent && typeof payload.absent === 'object'){
+      _absentOvr = absentNormMap_(payload.absent);   // 親が持っている当日ぶんが正（チェックを戻した人も反映される）
+      absentSaveLocal_();
+    }
+    workers.forEach(function(w){ if(isAbsentOvr_(w)) w.attend = false; });
+    // ② シフト＝“素の出勤”を確定し、選択中の時間帯（午前/午後）の半休を差し引いて w.attend を決める
+    workers.forEach(function(w){ w._baseAttend = w.attend; });
+    applySlotAttend_();
+    // 固定ゾーンの出勤者を先にそのゾーンへ置く（autoAssignがpinnedを保持し、残りを埋める）
+    workers.forEach(function(w){
+      if(w.attend && pinned[w.id]){
+        var z = null; for(var k=0;k<ZONES.length;k++){ if(ZONES[k].id === pinned[w.id]){ z = ZONES[k]; break; } }
+        if(z && assignment[z.id].indexOf(w.id) < 0 && assignment[z.id].length < capacityOf(z)) assignment[z.id].push(w.id);
+      }
+    });
+    // ② 保存された手動配置は午前/午後を別々に持つ（{__ampm,AM,PM}）。旧形式(フラット)は現在の時間帯として取り込む。
+    var _rawLayout = payload && payload.layout;
+    if(_rawLayout && _rawLayout.__ampm){ _slotLayouts = { AM:_rawLayout.AM || null, PM:_rawLayout.PM || null }; }
+    else if(_rawLayout && Object.keys(_rawLayout).length){ _slotLayouts[CUR_SLOT] = _rawLayout; }
+    var _savedLayout = _slotLayouts[CUR_SLOT];   // 今の時間帯の配置を復元
+    var _hasLayout = _savedLayout && Object.keys(_savedLayout).some(function(k){ return _savedLayout[k] && _savedLayout[k].length; });
+    if(_hasLayout){ applyLayoutByName(_savedLayout); placeFreshNextToVets_(); }   // 復元＋新しい人だけコンベアへ
+    else { autoAssign('pattern'); }   // autoAssignの先頭で新人先取り→内部でrenderBoard
+    // ② 選択中の時間帯に休みの人（午前休/午後休）が復元配置に含まれていたら未配置へ戻す
+    workers.forEach(function(w){ if(!w.attend) removeFromAllZones(w.id); });
+    renderBoard();
+    if(document.getElementById('panel-skill') && document.getElementById('panel-skill').classList.contains('active')) renderSkillTable();
+    if(typeof fitBoardPhoto === 'function') setTimeout(fitBoardPhoto, 30);
+    // 親（電子黒板）の左「シフト（本日出勤）」カード更新用に、配置結果（出勤数＋ゾーン別人数）を返す
+    try{
+      if(window.parent && window.parent !== window){
+        var zc = ZONES.map(function(z){ return { label:z.label, count:assignment[z.id].length }; });
+        var attendN = workers.filter(function(w){ return w.attend; }).length;
+        postParent_({ type:'centerHaichiResult', attend:attendN, zones:zc });
+      }
+    }catch(_e){}
+    _restoringLayout = false;
+    _liveReceived = true;
+    // 予測モードは“開いて見ただけ”ではクラウドへ書かない（自動配置はどのPCでも同じ結果になる）。
+    // 人を動かした・工程を変えたときだけ saveLayout() が走り、その日ぶんとして全PCへ共有される。
+    if(!IS_PLAN) saveLayout();   // 復元/自動配置の結果を保存（次回の開き直し・更新でも維持）
+  }catch(e){ _restoringLayout = false; /* 失敗時はサンプルのまま */ }
+}
+// 「この配置を履歴に保存」：今の配置（場所×氏名）をAM/PM付きで親（電子黒板）経由でGASへ保存
+function savePositionHistory(){
+  var st = document.getElementById('save-status');
+  var sel = document.getElementById('save-ampm');
+  var ampm = (sel && sel.value) ? sel.value : 'AM';
+  var rows = [];
+  ZONES.forEach(function(z){
+    (assignment[z.id] || []).forEach(function(id){ var w = worker(id); if(w) rows.push({ z: z.label, n: w.name }); });
+  });
+  if(!rows.length){ if(st){ st.textContent = '配置がありません'; st.style.color = 'var(--muted)'; } return; }
+  if(!(window.parent && window.parent !== window)){ if(st){ st.textContent = '電子黒板から開くと保存できます'; st.style.color = 'var(--muted)'; } return; }
+  if(st){ st.textContent = '保存中…'; st.style.color = 'var(--text2)'; }
+  try{ postParent_({ type:'centerSavePosition', ampm: ampm, rows: rows }); }catch(e){ if(st){ st.textContent = '保存に失敗'; st.style.color = 'var(--red)'; } }
+}
+// 親（電子黒板）へ現在の配置結果（出勤数・ゾーン別人数）を返す＝はつり人数/終了目標などの再計算用
+function postCenterResult_(){
+  try{
+    if(window.parent && window.parent !== window){
+      var zc = ZONES.map(function(z){ return { label:z.label, count:assignment[z.id].length }; });
+      var an = workers.filter(function(w){ return w.attend; }).length;
+      postParent_({ type:'centerHaichiResult', attend:an, zones:zc });
+    }
+  }catch(_e){}
+}
+window.addEventListener('message', function(e){
+  if(!e.data) return;
+  if(e.data.type === 'centerLiveData') applyLiveData(e.data.payload);
+  else if(e.data.type === 'centerSetAbsent'){                                            // ⑥ 他PCで出勤チェックが変わった→こちらにも反映
+    try{
+      _absentOvr = absentNormMap_(e.data.absent || {});
+      absentSaveLocal_();
+      workers.forEach(function(w){
+        if(isAbsentOvr_(w)){ w._baseAttend = false; w.attend = false; removeFromAllZones(w.id); }
+      });
+      renderBoard();
+      if(document.getElementById('panel-skill') && document.getElementById('panel-skill').classList.contains('active')) renderSkillTable();
+      postCenterResult_();
+    }catch(_e){}
+  }
+  else if(e.data.type === 'centerRequestImage'){ try{ saveBoardImage(); }catch(_e){} }   // ① 電子黒板からの自動保存要求
+  else if(e.data.type === 'centerSetOffZones'){                                            // ② 本日オフの工程が変わった→外して/戻して自動配置し直す
+    offZones = e.data.off || {};
+    try{ autoAssign('pattern'); }catch(_e){}   // 内部で renderBoard
+    try{ if(typeof saveLayout==='function') saveLayout(); }catch(_e){}
+    postCenterResult_();
+  }
+  else if(e.data.type === 'centerSaveResult'){
+    var st = document.getElementById('save-status');
+    if(st){
+      if(e.data.ok){ st.textContent = '✓ 保存しました（' + e.data.saved + '件・' + (e.data.ampm||'') + '）'; st.style.color = 'var(--green)'; }
+      else { st.textContent = '保存に失敗' + (e.data.error ? '：' + e.data.error : ''); st.style.color = 'var(--red)'; }
+    }
+  }
+  else if(e.data.type === 'centerSaveImageResult'){
+    var st2 = document.getElementById('save-status');
+    if(st2){
+      if(e.data.ok){
+        // 「保存しました」だけだとDriveのどこに入ったか分からず「保存できていない」と誤解される。
+        // 実際に保存されたファイル／フォルダを開くリンクを出して、迷わずたどり着けるようにする。
+        var lk = 'color:#184f95;font-weight:700;text-decoration:underline;';
+        var html = '✓ 画像を保存しました（' + (e.data.name||'') + '）';
+        if(e.data.url)       html += ' 　<a href="' + e.data.url + '" target="_blank" rel="noopener" style="' + lk + '">画像を開く</a>';
+        if(e.data.folderUrl) html += ' 　<a href="' + e.data.folderUrl + '" target="_blank" rel="noopener" style="' + lk + '">保存先フォルダを開く</a>';
+        st2.innerHTML = html; st2.style.color = 'var(--green)';
+      }
+      else { st2.textContent = '画像の保存に失敗' + (e.data.error ? '：' + e.data.error : ''); st2.style.color = 'var(--red)'; }
+    }
+  }
+});
+
+/* ===== ⑤ 今の配置を画像(PNG)にして親（電子黒板）経由でGoogleドライブへ保存 ===== */
+// board-photo はCSS描画（写真ではない）なので、ZONES/assignment の座標から canvas に描き直す＝汚染なし・確実。
+function saveBoardImage(){
+  var st = document.getElementById('save-status');
+  if(!(window.parent && window.parent !== window)){ if(st){ st.textContent = '電子黒板から開くと保存できます'; st.style.color = 'var(--text2)'; } return; }
+  try{
+    var SC = 2, W = 1101*SC, H = 813*SC;
+    var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var ctx = cv.getContext('2d');
+    function rr(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+    function drawName(cx, cy, r, name){
+      ctx.fillStyle = '#1c1c1c'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      var s = String(name||''); var fs = Math.round(r*0.62);
+      if(s.length >= 4) fs = Math.round(r*0.5);
+      // 5文字以上は2行に分割
+      if(s.length >= 5){
+        var mid = Math.ceil(s.length/2), l1 = s.slice(0,mid), l2 = s.slice(mid);
+        ctx.font = '700 ' + Math.round(r*0.5) + 'px sans-serif';
+        ctx.fillText(l1, cx, cy - r*0.28); ctx.fillText(l2, cx, cy + r*0.28);
+      } else {
+        ctx.font = '700 ' + fs + 'px sans-serif';
+        ctx.fillText(s, cx, cy);
+      }
+    }
+    function drawChip(cx, cy, r, name, border, absent){
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
+      ctx.fillStyle = '#ffffff'; ctx.fill();
+      ctx.lineWidth = Math.max(2, r*0.12); ctx.strokeStyle = border || '#bcbbb4'; ctx.stroke();
+      drawName(cx, cy, r, name);
+      if(absent){ ctx.fillStyle = '#d03b3b'; ctx.font = '700 ' + Math.round(r*0.4) + 'px sans-serif'; ctx.fillText('欠', cx, cy + r*0.72); }
+    }
+    // 盤面の背景
+    ctx.fillStyle = '#e7e7e3'; rr(0,0,W,H,16*SC); ctx.fill();
+    ctx.lineWidth = 3*SC; ctx.strokeStyle = '#3a3a3a'; rr(1.5*SC,1.5*SC,W-3*SC,H-3*SC,16*SC); ctx.stroke();
+    // 見出し（日付・時刻）
+    var now = new Date();
+    var stamp = now.getFullYear()+'/'+(now.getMonth()+1)+'/'+now.getDate()+' '+('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2);
+    ctx.fillStyle = '#52514e'; ctx.font = '800 ' + (13*SC) + 'px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+    ctx.fillText('配置図　' + stamp, W - 14*SC, 8*SC);
+    // ビス置き場（未配置プール）
+    var pr = POOL_REGION;
+    var px = pr.left/100*W, py = pr.top/100*H, pw = pr.width/100*W, ph = pr.height/100*H;
+    ctx.setLineDash([6*SC,4*SC]); ctx.strokeStyle = '#b7b6ae'; ctx.lineWidth = 1.5*SC; rr(px,py,pw,ph,10*SC); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = '#8a8880'; ctx.font = '700 ' + (11*SC) + 'px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText('ビス置き場（未配置）', px + 8*SC, py + 4*SC);
+    var pool = workers.filter(function(w){ return !isAssigned(w.id); });
+    var pd = Math.round(W*0.048), pgap = 4*SC, cx0 = px + 8*SC, cy0 = py + 20*SC, cxp = cx0, cyp = cy0;
+    pool.forEach(function(w){
+      if(cxp + pd > px + pw - 4*SC){ cxp = cx0; cyp += pd + pgap; }
+      if(cyp + pd <= py + ph){ drawChip(cxp + pd/2, cyp + pd/2, pd/2, w.name, w.attend ? '#bcbbb4' : '#d03b3b', !w.attend); }
+      cxp += pd + pgap;
+    });
+    // ゾーンごとのラベル＋配置枠
+    ZONES.forEach(function(z){
+      // ラベル
+      var lx = z.labelPos.left/100*W, ly = z.labelPos.top/100*H;
+      ctx.font = '800 ' + (13*SC) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      var tw = ctx.measureText(z.label).width, bw = tw + 16*SC, bh = 22*SC;
+      ctx.fillStyle = '#ffffff'; rr(lx - bw/2, ly - bh/2, bw, bh, 4*SC); ctx.fill();
+      ctx.lineWidth = 2.5*SC; ctx.strokeStyle = '#1c1c1c'; rr(lx - bw/2, ly - bh/2, bw, bh, 4*SC); ctx.stroke();
+      ctx.fillStyle = '#1c1c1c'; ctx.fillText(z.label, lx, ly);
+      // 配置された人
+      var cap = capacityOf(z);
+      for(var i=0;i<cap;i++){
+        var wid = assignment[z.id][i]; if(!wid) continue;
+        var pos = slotPos(z,i), x = pos.left/100*W, y = pos.top/100*H;
+        var col = isBlockedCell_(wid, z.skill) ? '#d03b3b' : (prioNumOf(wid, z.skill)!==null ? '#0ca30c' : '#2a78d6');
+        var w = worker(wid);
+        drawChip(x, y, Math.round(W*0.028), w ? w.name : '', col, false);
+      }
+    });
+    var url = cv.toDataURL('image/png');
+    if(st){ st.textContent = '保存中…'; st.style.color = 'var(--text2)'; }
+    postParent_({ type:'centerSaveImage', dataUrl: url });
+  }catch(err){
+    if(st){ st.textContent = '画像化に失敗：' + (err && err.message || err); st.style.color = 'var(--red)'; }
+  }
+}
+/* ===== ドラッグ＆ドロップで配置変更（マウス・タッチ両対応＝Pointer Events） =====
+   人をドラッグ→ 空き枠にドロップ=移動／人の上にドロップ=入れ替え／ビス置き場にドロップ=未配置。
+   動かさずに離した（タップ）ときは従来どおりメニューを開く。 */
+(function(){
+  var board = document.getElementById('board-photo');
+  if(!board) return;
+  var THRESH = 6, drag = null, justDragged = false;
+  function widElFrom(el){ while(el && el !== board){ if(el.dataset && el.dataset.wid) return el; el = el.parentElement; } return null; }
+  function dropTargetFrom(el){
+    while(el && el !== document.body){
+      if(el.classList && el.classList.contains('pool-region')) return { pool:true };
+      if(el.dataset && el.dataset.zone !== undefined && el.dataset.idx !== undefined) return { zone: el.dataset.zone, idx: parseInt(el.dataset.idx, 10) };
+      el = el.parentElement;
+    }
+    return null;
+  }
+  board.addEventListener('pointerdown', function(e){
+    if(HAICHI_LOCKED) return;   // ② ロック中はドラッグ開始しない（うっかり移動を防ぐ）
+    var wel = widElFrom(e.target);
+    if(!wel) return;
+    drag = { wid: wel.dataset.wid, x: e.clientX, y: e.clientY, moved:false, ghost:null };
+  });
+  window.addEventListener('pointermove', function(e){
+    if(!drag) return;
+    if(!drag.moved && (Math.abs(e.clientX - drag.x) > THRESH || Math.abs(e.clientY - drag.y) > THRESH)){
+      drag.moved = true;
+      var w = worker(drag.wid);
+      var g = document.createElement('div');
+      g.textContent = w ? w.name : '';
+      g.style.cssText = 'position:fixed;z-index:99999;pointer-events:none;background:var(--blue-deep);color:#fff;border-radius:50%;width:46px;height:46px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;opacity:.9;transform:translate(-50%,-50%);box-shadow:0 4px 12px rgba(0,0,0,.3);';
+      document.body.appendChild(g);
+      drag.ghost = g;
+    }
+    if(drag.moved){ if(e.cancelable) e.preventDefault(); drag.ghost.style.left = e.clientX + 'px'; drag.ghost.style.top = e.clientY + 'px'; }
+  }, { passive:false });
+  window.addEventListener('pointerup', function(e){
+    if(!drag) return;
+    var d = drag; drag = null;
+    if(d.ghost) d.ghost.remove();
+    if(!d.moved) return;   // 動かしていない＝タップ → 既存のクリックメニューに任せる
+    justDragged = true; setTimeout(function(){ justDragged = false; }, 350);
+    var tgt = dropTargetFrom(document.elementFromPoint(e.clientX, e.clientY));
+    if(!tgt) return;
+    if(tgt.pool){ removeFromAllZones(d.wid); renderBoard(); return; }
+    dragDropTo(d.wid, tgt.zone, tgt.idx);
+  });
+  board.addEventListener('click', function(e){ if(justDragged){ e.stopPropagation(); e.preventDefault(); } }, true);
+})();
+function dragDropTo(wid, zoneId, idx){
+  // ※ removeFromAllZones は assignment[z.id] を作り直すので、参照は都度 assignment[zoneId] を読む
+  if(!assignment[zoneId]) return;
+  var srcZone = zoneOf(wid);
+  var occ = (typeof idx === 'number' && idx >= 0 && idx < assignment[zoneId].length) ? assignment[zoneId][idx] : null;
+  if(occ === wid) return;
+  if(srcZone === zoneId){
+    // 同ゾーン内 並べ替え：wid をドロップ位置へ移動し、他は詰める（「この人の隣に」を実現）
+    var a = assignment[zoneId];
+    var from = a.indexOf(wid); if(from < 0) return;
+    a.splice(from, 1);
+    var insertAt = occ ? a.indexOf(occ) : Math.min(idx, a.length);
+    if(insertAt < 0) insertAt = a.length;
+    a.splice(insertAt, 0, wid);
+    renderBoard(); return;
+  }
+  if(occ){                                                    // 別ゾーン/プールと入替
+    var occIdx = assignment[zoneId].indexOf(occ);
+    removeFromAllZones(wid);
+    if(occIdx >= 0) assignment[zoneId][occIdx] = wid;         // 相手を上書き＝相手はゾーンから外れる
+    if(srcZone) assignment[srcZone].push(occ);                // 相手をドラッグ元ゾーンへ（元がプールならプールへ）
+  } else {                                                    // 空き枠へ移動
+    var z = null; for(var k=0;k<ZONES.length;k++){ if(ZONES[k].id===zoneId){ z=ZONES[k]; break; } }
+    if(z && assignment[zoneId].length >= capacityOf(z)) return;   // 満杯なら受け付けない
+    removeFromAllZones(wid);
+    assignment[zoneId].push(wid);
+  }
+  renderBoard();
+}
+// 時間帯トグルの初期値を現在時刻で（12時以降なら午後）。ボタンの色も合わせる。
+try{
+  CUR_SLOT = (new Date().getHours() >= 12) ? 'PM' : 'AM';
+  var _sa = document.getElementById('save-ampm'); if(_sa) _sa.value = CUR_SLOT;
+  if(typeof paintSlotButtons_ === 'function') paintSlotButtons_();
+}catch(e){}
+postParent_({type:'centerReady'});   // 親（電子黒板）へ「準備できました」＝当日/予測どちらのフレームかも一緒に伝える
+
+
+</script>
+</body>
+</html>
