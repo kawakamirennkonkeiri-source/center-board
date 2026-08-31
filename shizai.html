@@ -477,7 +477,7 @@ const SEED_SKUS = [
   ['名駅なだ万茶寮','洗い',2],['鮨銀座おのでら','洗い',2],['水辺ﾌﾟﾗｻﾞかもと','土',2],['水辺ﾌﾟﾗｻﾞかもと','Mup',5],
   ['ユーマートトクナガ','Mup',2],['ユーマートトクナガ','洗い',5],['ｻﾎﾟｰﾚ','洗い',5],
   ['クローバー','CS',5],['クローバー','CS',10],['小田商店','C',10],['小田商店','S',10],['三ツ和','C',10],
-  ['DAY1','S',10],['ギフト','Mup',1],
+  ['DAY1','S',10],['ギフト','Mup',1,1],
   // 個人注文＝kg入力（サイズで割って箱数換算）。boxSize=箱サイズkg
   ['個人注文(2kg)','個人',2,0,1,2],['個人注文(5kg)','個人',5,0,1,5],
   ['その他サンプル','Mup',1,1],
@@ -548,6 +548,7 @@ function load(){ try{S=JSON.parse(localStorage.getItem(LS));}catch(e){} if(!S)S=
   S.glove=Object.assign(defaultGlove(),S.glove||{});   // ① 手袋（シフト連動）
   S.busy=S.busy||{};                                   // ② 繁忙期の「全資材 再確認」記録（YYYY-MM → {by,at}）
   if(!(S.settings.gasUrl||'').trim()) S.settings.gasUrl=GAS_URL_DEFAULT;   // 未設定なら既定のGASにつなぐ
+  S.skus.forEach(sk=>{ if(/ギフト/.test(sk.tori+sk.kubun)) sk.exc=true; });   // ギフトは入力不要＝毎回除外扱いに正規化（既存データにも効く）
   gloveAutoMap();
   migrateV3();
 }
@@ -790,9 +791,23 @@ function computeStock(){
 }
 
 /* =================== ALERTS (also to 電子黒板) =================== */
+// BOM未設定＝実際に荷造されている(orこれから予定がある)のに、資材の原単位が1つも入っていないSKU。
+//   theoreticalUsage()/futureDemandByMat() はBOM未設定のSKUを黙って0扱いするため、放置すると理論使用量・在庫予測が静かにズレる。
+function bomMissingSkus(){
+  return S.skus.filter(sk=>{
+    if(sk.exc)return false;   // ギフト・ﾜﾝﾍﾞｼﾞ・サンプル等は入力不要
+    const bom=S.boms[sk.key];
+    const hasBom=bom&&Object.keys(bom).some(mid=>Number(bom[mid]||0)>0);
+    if(hasBom)return false;
+    const fut=S.futureFunes[sk.key];
+    const hasUsage=effFunes(sk)>0||(fut&&fut.some(p=>Number(p[1])>0));
+    return hasUsage;
+  });
+}
 function buildAlerts(){
   const rows=computeStock();
   const reorder=[],deliver=[],scrap=[],periodic=[];
+  const bomMissing=bomMissingSkus().map(sk=>({name:sk.tori+' '+sk.kubun+sk.irisu,tori:sk.tori}));
   rows.forEach(r=>{
     if(r.order){   // 発注中は全モード共通で「納品待ち」扱い
       const due=r.order.dueDate||'';const base=S.settings.baseDate;
@@ -823,7 +838,7 @@ function buildAlerts(){
       if(!st||!st.reason) scrap.push({name:m.name,rate:m.scrapRate});
     }
   });
-  return {reorder,deliver,scrap,periodic,rows};
+  return {reorder,deliver,scrap,periodic,bomMissing,rows};
 }
 function publishAlerts(){
   try{const a=buildAlerts();const st=stocktakeStatus();
@@ -831,10 +846,10 @@ function publishAlerts(){
     const due=a.deliver.filter(d=>d.dueReached);   // 納品予定日が来た（=当日以降）
     const summary={
       asOf:todayStr(),
-      reorderCount:a.reorder.length,deliverCount:due.length,scrapCount:a.scrap.length,periodicCount:a.periodic.length,
-      total:a.reorder.length+due.length+a.scrap.length+a.periodic.length+(st.due?1:0),
+      reorderCount:a.reorder.length,deliverCount:due.length,scrapCount:a.scrap.length,periodicCount:a.periodic.length,bomMissingCount:a.bomMissing.length,
+      total:a.reorder.length+due.length+a.scrap.length+a.periodic.length+a.bomMissing.length+(st.due?1:0),
       reorder:a.reorder.map(r=>r.name),deliverLate:late.map(d=>d.name),deliverDue:due.map(d=>d.name),
-      scrap:a.scrap.map(s=>s.name),periodic:a.periodic.map(p=>p.name),
+      scrap:a.scrap.map(s=>s.name),periodic:a.periodic.map(p=>p.name),bomMissing:a.bomMissing.map(b=>b.name),
       stocktake:{month:st.month,done:st.done,due:st.due}
     };
     localStorage.setItem('shizai_alerts',JSON.stringify(Object.assign({},summary,{appUrl:location.href.split('#')[0]})));
@@ -882,6 +897,7 @@ function renderDash(){
     items.push(`<span class="pill scrap" style="cursor:pointer" onclick="switchView('usage')">🧤 手袋サイズ未記入の人がいます（${esc((S.glove.missing||[]).slice(0,5).join('・'))}${(S.glove.missing||[]).length>5?' ほか':''}）→ シフト表のサイズ列へ</span>`);
   }
   if(st.due)items.push(`<span class="pill scrap" style="cursor:pointer" onclick="switchView('stock')">📋 月末棚卸が未入力です（${st.month}）→ 入力する</span>`);
+  a.bomMissing.forEach(b=>items.push(`<span class="pill reorder" style="cursor:pointer" onclick="jumpToBom('${esc(b.tori)}')" title="荷造されているのに使う資材が未設定＝在庫予測に反映されません">📦 ${esc(b.name)} BOM未設定 → 設定する</span>`));
   a.reorder.forEach(r=>items.push(`<span class="pill reorder">🛒 ${r.name}（${r.cover?('あと'+(r.cover.have!=null?fmt(r.cover.have):'0')+'日分 ＜ 基準'+fmt(r.cover.days)+'日分'):(r.threshold!=null?'残り '+fmt(r.stock)+' ≤ しきい値 '+fmt(r.threshold):(r.runoutDate?'在庫 '+fmt(r.stock)+' ／ 切れ予定 '+r.runoutDate.slice(5)+'（あと'+fmt(r.runoutDays)+'日）':'在庫 '+fmt(r.stock)+(r.days!=null?' ／ あと'+r.days+'日':'')))}${r.hinode?'／日野出 '+fmt(r.hinode):''}）</span>`));
   a.deliver.filter(d=>d.dueReached).forEach(d=>items.push(`<span class="pill deliver">🚚 ${d.name} 納品予定（${d.due||''}）${d.late?' <b>※遅延</b>':''}</span>`));
   a.periodic.forEach(p=>items.push(`<span class="pill" style="background:#e0f2fe;color:#075985">🔔 ${p.name} 定期チェック時期（毎${p.days}日）</span>`));
@@ -1425,6 +1441,12 @@ function fillKubunFilter(){
   const kubuns=[...new Set(S.skus.filter(s=>!s.exc).map(s=>s.kubun).filter(Boolean))];
   sel.innerHTML='<option value="">（全区分）</option>'+kubuns.map(k=>`<option value="${k}"${k===cur?' selected':''}>${k}</option>`).join('');
 }
+// ダッシュボードの「BOM未設定」アラートからBOMタブへジャンプ（取引先で絞り込んで見つけやすくする）
+function jumpToBom(tori){
+  switchView('bom');
+  const el=document.getElementById('bomToriFilter'); if(el)el.value=tori||'';
+  renderBom();
+}
 function renderBom(){
   fillKubunFilter();
   const fMat=document.getElementById('bomMatFilter').value;
@@ -1436,10 +1458,12 @@ function renderBom(){
   document.querySelector('#bomTable thead').innerHTML='<tr><th class="l">取引先</th><th class="l">区分</th><th>入数</th>'+
     cols.map(m=>'<th title="'+m.name+'">'+m.name+'</th>').join('')+'</tr>';
   const skus=S.skus.filter(sk=>(!fTori||sk.tori.includes(fTori))&&(!fKubun||sk.kubun===fKubun));
+  const missing=new Set(bomMissingSkus().map(sk=>sk.key));
   document.querySelector('#bomTable tbody').innerHTML=skus.map(sk=>{
     const bom=S.boms[sk.key]||(S.boms[sk.key]={});const[cls]=bunruiTag(sk.kubun);
-    return '<tr style="'+(sk.exc?'opacity:.5':'')+'"><td class="l">'+sk.tori+'</td>'+
-      '<td class="l"><span class="tag '+(sk.kg?'kg':cls)+'">'+sk.kubun+'</span></td><td>'+sk.irisu+'</td>'+
+    const isMissing=missing.has(sk.key);
+    return '<tr style="'+(sk.exc?'opacity:.5':(isMissing?'outline:1px solid var(--danger)':''))+'"><td class="l">'+sk.tori+'</td>'+
+      '<td class="l"><span class="tag '+(sk.kg?'kg':cls)+'">'+sk.kubun+'</span>'+(isMissing?' <span class="tag" style="background:#fee2e2;color:#b91c1c">BOM未設定</span>':'')+'</td><td>'+sk.irisu+'</td>'+
       cols.map(m=>'<td><input class="cell" style="width:50px" type="number" min="0" value="'+(bom[m.id]||'')+
         '" onchange="setBom(\''+sk.key+'\',\''+m.id+'\',this.value)"></td>').join('')+'</tr>';
   }).join('');
@@ -1737,7 +1761,7 @@ function applyLive(data){
     if(!r.kubun||String(r.kubun).trim()==='')return;              // 区分空欄は取り込まない
     const key=skuKey(r.tori,r.kubun,r.irisu);
     if(!S.skus.find(s=>s.key===key))
-      S.skus.push({tori:r.tori,kubun:r.kubun,irisu:r.irisu,exc:/ﾜﾝﾍﾞｼﾞ|サンプル|合計|下茹で/.test(r.kubun+r.tori),kg:/個人/.test(r.tori+r.kubun),boxSize:r.irisu,key});
+      S.skus.push({tori:r.tori,kubun:r.kubun,irisu:r.irisu,exc:/ﾜﾝﾍﾞｼﾞ|サンプル|合計|下茹で|ギフト/.test(r.kubun+r.tori),kg:/個人/.test(r.tori+r.kubun),boxSize:r.irisu,key});
     S.funes[key]=Number(r.funes||0);
   });
   // 未来の予定荷造数（在庫切れ予定日の算出用）を差し替え
@@ -1746,7 +1770,7 @@ function applyLive(data){
     if(!f.kubun||String(f.kubun).trim()==='')return;
     const key=skuKey(f.tori,f.kubun,f.irisu);
     if(!S.skus.find(s=>s.key===key))
-      S.skus.push({tori:f.tori,kubun:f.kubun,irisu:f.irisu,exc:/ﾜﾝﾍﾞｼﾞ|サンプル|合計|下茹で/.test(f.kubun+f.tori),kg:/個人/.test(f.tori+f.kubun),boxSize:f.irisu,key});
+      S.skus.push({tori:f.tori,kubun:f.kubun,irisu:f.irisu,exc:/ﾜﾝﾍﾞｼﾞ|サンプル|合計|下茹で|ギフト/.test(f.kubun+f.tori),kg:/個人/.test(f.tori+f.kubun),boxSize:f.irisu,key});
     S.futureFunes[key]=f.days||[];
   });
   S.live={asOf:data.asOf||todayStr(),isLive:true};
@@ -1949,8 +1973,9 @@ function initUI(){
     document.getElementById('asof').textContent='取得 '+(S.live.asOf||'');}
   refreshMatSelects();renderDash();renderUsage();renderOrders();renderMat();renderBom();renderStock();renderBackups();renderSwitch();
   if(location.hash==='#stock')switchView('stock');
+  if(location.hash==='#bom')switchView('bom');
 }
-window.addEventListener('hashchange',()=>{if(location.hash==='#stock')switchView('stock');});
+window.addEventListener('hashchange',()=>{if(location.hash==='#stock')switchView('stock');if(location.hash==='#bom')switchView('bom');});
 load();initUI();initCloud();autoFetchGloves();autoFetchLive();
 setInterval(autoFetchLive,30*60*1000);   // 30分ごとに自動で発注書の最新を取り込み、常に「今日まで」の状態を保つ
 </script>

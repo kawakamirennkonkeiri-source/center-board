@@ -3654,6 +3654,7 @@
     (a.deliverLate||[]).forEach(function(n){ items.push('<div class="material-item"><span>'+n+'</span><span class="stock low">納品遅延</span></div>'); });
     (a.periodic||[]).forEach(function(n){ items.push('<div class="material-item"><span>'+n+'</span><span class="stock low">定期チェック</span></div>'); });
     (a.scrap||[]).forEach(function(n){ items.push('<div class="material-item"><span>'+n+'</span><span class="stock low">破棄率↑</span></div>'); });
+    (a.bomMissing||[]).forEach(function(n){ items.push('<div class="material-item" style="cursor:pointer" onclick="openShizaiApp(\'#bom\')"><span>'+n+'</span><span class="stock low">BOM未設定</span></div>'); });
     if(items.length===0){
       var mDone=(a.stocktake&&a.stocktake.done)?'<div class="material-item"><span>月末棚卸</span><span class="stock ok">済</span></div>':'';
       items.push('<div class="material-item"><span>在庫</span><span class="stock ok">適正</span></div>'+mDone);
