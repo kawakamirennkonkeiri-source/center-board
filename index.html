@@ -2883,7 +2883,7 @@
   }
 
   // ②③ 本日サマリ：本日の荷造り舟数(発注書の「収穫舟数」列・見出しで検出→列がズレても追従)・実績(舟数/kg/歩留まり=力量表「実績」)・終了目標時刻
-  var boardData = { targetFunes:null, jissekiFunes:null, jissekiKg:null, orderTotalKg:null, hatsuri:0, attendNow:0, serverTarget:null, targetOverride:null };
+  var boardData = { targetFunes:null, jissekiFunes:null, jissekiKg:null, jissekiBudomari:null, orderTotalKg:null, orderKawakamiKg:null, orderBudomari:null, hatsuri:0, attendNow:0, serverTarget:null, targetOverride:null };
   function haichiNum_(n, d){ if(n==null || isNaN(n)) return '--'; return Number(n).toLocaleString('ja-JP', {maximumFractionDigits: d||0}); }
   function haichiSetText_(id, v){ var e = document.getElementById(id); if(e) e.textContent = v; }
   function haichiUpdateBoard(s){
@@ -2894,7 +2894,9 @@
     boardData.targetFunes = (ovr != null) ? ovr : boardData.serverTarget;
     var j = s.jisseki || {};
     boardData.jissekiFunes = (typeof j.funes === 'number') ? j.funes : null;
-    boardData.orderTotalKg = (typeof s.orderTotalKg === 'number') ? s.orderTotalKg : null;
+    boardData.orderTotalKg    = (typeof s.orderTotalKg === 'number')    ? s.orderTotalKg    : null;
+    boardData.orderKawakamiKg = (typeof s.orderKawakamiKg === 'number') ? s.orderKawakamiKg : null;
+    boardData.orderBudomari   = (typeof s.orderBudomari === 'number')   ? s.orderBudomari   : null;
     // 上段（予測・予定）：本日の荷造り舟数（＝発注書 or 数量変更 ＋ 生産者の収穫舟数）
     haichiSetText_('t-target-sub', ovr!=null ? '当日変更（発注書の予定を上書き）' : '発注書より（本日の総舟数）');
     haichiRefreshTargets_();   // t-target-funes と 荷造りkg（予定）を生産者舟数込みで再計算
@@ -2987,6 +2989,7 @@
     // ① 生産者ぶんを差し引いたときは、いくら差し引いたかを小さく出す
     haichiSetText_('j-kg-note', '作った分の合計（CS・生産者分を除く）' + (p.seisan > 0 ? '　生産者 −' + haichiNum_(p.seisan) + 'kg' : ''));
     var bud = tFune > 0 ? (tKg / tFune) : null;           // 歩留まり＝荷造りkg（CS除く） ÷ 舟数
+    boardData.jissekiBudomari = bud;
     haichiSetText_('j-budomari', bud != null ? haichiNum_(bud, 1) : '--');
     // ① 加工率は生産者ぶんも含めた全体で計算する＝差し引いた生産者ぶんを tCs/tKg に足し戻す
     var kak = kakouRitsu_(tCs + p.seisanCs, tKg + (p.seisan - p.seisanCs));   // ① 加工率＝C・S㎏(生産者含む) ÷（荷造り㎏(生産者含む)＋C・S㎏(生産者含む)）
@@ -2994,25 +2997,31 @@
     haichiSetText_('j-kakou-note', 'C・S㎏ ÷（荷造り㎏＋C・S㎏）　※生産者ぶんを含む');
     checkProgressMatch_();
   }
-  // ⑥ 電子黒板「荷造りkg（実績）」と 発注書「進捗」シートの「合計kg数」が一致しているか確認。
-  //    ※列位置ではなく「合計kg数」の見出し文字で突き合わせる値（サーバ側 readOrderProgressKg_）なので、
+  // ⑥ 電子黒板の「荷造りkg（実績）」「歩留まり」と、発注書「進捗」シートの「カワカミ荷造数」「歩留まり」が
+  //    それぞれ一致しているか確認。
+  //    ※列位置ではなく見出し文字で突き合わせる値（サーバ側 readOrderProgressRow_）なので、
   //      新規取引先が増えて発注書の列がズレても影響しない。
   function checkProgressMatch_(){
     var el = document.getElementById('j-match-msg');
     if(!el) return;
-    var mine = boardData.jissekiKg, theirs = boardData.orderTotalKg;
-    if(typeof mine !== 'number' || typeof theirs !== 'number'){
+    var mineKg = boardData.jissekiKg, theirsKg = boardData.orderKawakamiKg;
+    var mineBud = boardData.jissekiBudomari, theirsBud = boardData.orderBudomari;
+    if(typeof mineKg !== 'number' || typeof theirsKg !== 'number' || typeof mineBud !== 'number' || typeof theirsBud !== 'number'){
       el.className = 'match-msg';
       el.textContent = '確認中…（データ取得待ち）';
       return;
     }
-    var diff = mine - theirs;
-    if(Math.abs(diff) < 0.1){
+    var diffKg = mineKg - theirsKg, diffBud = mineBud - theirsBud;
+    var kgOk = Math.abs(diffKg) < 0.1, budOk = Math.abs(diffBud) < 0.1;
+    if(kgOk && budOk){
       el.className = 'match-msg ok';
       el.innerHTML = '✅ 一致しました！<br>今日もお疲れ様でした';
     }else{
       el.className = 'match-msg bad';
-      el.innerHTML = '⚠️ 差 ' + haichiNum_(Math.abs(diff), 1) + 'kgあり<br>要確認';
+      var msgs = [];
+      if(!kgOk)  msgs.push('荷造数差' + haichiNum_(Math.abs(diffKg), 1) + 'kg');
+      if(!budOk) msgs.push('歩留まり差' + haichiNum_(Math.abs(diffBud), 1));
+      el.innerHTML = '⚠️ ' + msgs.join('・') + 'あり<br>要確認';
     }
   }
 
@@ -3517,6 +3526,9 @@
   // ②③ 本日サマリの取得（読み込み時のみ個別取得。以降はまとめ取得〈30秒〉に統合。終了時刻は毎分も再計算して時計に追従）
   window.addEventListener('DOMContentLoaded', haichiLoadSummary);
   setInterval(function(){ if(typeof haichiCalcFinish === 'function') haichiCalcFinish(); }, 60*1000);
+  // ⑥ 発注書「進捗」との一致確認は、データがどの経路（本日サマリ／30秒まとめ取得／圃場入力）から
+  //    届いても3秒以内に「確認中…」から結果表示へ切り替わるよう、短い間隔で再判定するだけの軽い処理。
+  setInterval(function(){ if(typeof checkProgressMatch_ === 'function') checkProgressMatch_(); }, 3*1000);
   /* CENTER_HAICHI_LINK_END */
 
 
