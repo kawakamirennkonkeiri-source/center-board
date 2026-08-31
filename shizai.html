@@ -339,7 +339,7 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
   <div class="hint" id="syncStatus" style="font-weight:600">共有：オフ</div>
   <div class="row">
     <div class="field"><label>集計の起点日</label><input type="date" id="startDate"></div>
-    <div class="field"><label>基準日（本日）</label><input type="date" id="baseDate"></div>
+    <div class="field"><label>基準日（本日・自動）</label><input type="date" id="baseDate" readonly style="background:#f1f3f5;color:#666"></div>
     <div class="field"><label>安全在庫日数（常に持ちたい日数）</label><input type="number" id="safetyDays" min="0"></div>
     <div class="field"><label>破棄率の異常アラート閾値(%)</label><input type="number" id="scrapAlertPct" min="0"></div>
   </div>
@@ -543,6 +543,7 @@ const GAS_URL_DEFAULT='https://script.google.com/macros/s/AKfycbyEzr6jVTWegzY7sC
 function load(){ try{S=JSON.parse(localStorage.getItem(LS));}catch(e){} if(!S)S=defaultState();
   S.funes=S.funes||{};S.futureFunes=S.futureFunes||{};S.orders=S.orders||[];S.stocktakes=S.stocktakes||[];S.boms=S.boms||{};S.backups=S.backups||[];S.recounts=S.recounts||[];
   S.settings=Object.assign({safetyDays:30,scrapAlertPct:10,shareOn:false,deviceName:''},S.settings);
+  S.settings.baseDate=todayStr();   // 基準日は常に「今日」に強制（手入力の放置・古い値のまま止まるのを防ぐ）
   S.cloud=Object.assign({rev:0,savedAt:'',savedBy:''},S.cloud);
   S.glove=Object.assign(defaultGlove(),S.glove||{});   // ① 手袋（シフト連動）
   S.busy=S.busy||{};                                   // ② 繁忙期の「全資材 再確認」記録（YYYY-MM → {by,at}）
@@ -828,16 +829,30 @@ function publishAlerts(){
   try{const a=buildAlerts();const st=stocktakeStatus();
     const late=a.deliver.filter(d=>d.late);
     const due=a.deliver.filter(d=>d.dueReached);   // 納品予定日が来た（=当日以降）
-    localStorage.setItem('shizai_alerts',JSON.stringify({
+    const summary={
       asOf:todayStr(),
       reorderCount:a.reorder.length,deliverCount:due.length,scrapCount:a.scrap.length,periodicCount:a.periodic.length,
       total:a.reorder.length+due.length+a.scrap.length+a.periodic.length+(st.due?1:0),
       reorder:a.reorder.map(r=>r.name),deliverLate:late.map(d=>d.name),deliverDue:due.map(d=>d.name),
       scrap:a.scrap.map(s=>s.name),periodic:a.periodic.map(p=>p.name),
-      stocktake:{month:st.month,done:st.done,due:st.due},
-      appUrl:location.href.split('#')[0]
-    }));
+      stocktake:{month:st.month,done:st.done,due:st.due}
+    };
+    localStorage.setItem('shizai_alerts',JSON.stringify(Object.assign({},summary,{appUrl:location.href.split('#')[0]})));
+    boardPushAlerts(summary);
   }catch(e){}
+}
+// 電子黒板（別PCでも）に見えるよう、要約だけ「本日荷造り状態」の共有day領域に流す（既存のnizukuriStateSaveを再利用・GAS改修不要な範囲）。
+// 変化が無ければ送らない＋2秒デバウンスで、連打・自動更新でもGASを叩きすぎない。
+let boardPushTimer=null,boardPushLast='';
+function boardPushAlerts(summary){
+  const url=(S.settings.gasUrl||'').trim(); if(!url)return;
+  clearTimeout(boardPushTimer);
+  boardPushTimer=setTimeout(()=>{
+    const json=JSON.stringify(summary);
+    if(json===boardPushLast)return;
+    boardPushLast=json;
+    fetch(url,{method:'POST',body:JSON.stringify({action:'nizukuriStateSave',patch:{day:{shizai:summary}},by:S.settings.deviceName||'資材アプリ'})}).catch(()=>{});
+  },2000);
 }
 
 /* =================== RENDER =================== */
@@ -1316,6 +1331,7 @@ function applySnapshot(obj){
   S=obj; S.settings=S.settings||{};
   S.settings=Object.assign({safetyDays:30,scrapAlertPct:10},S.settings);
   S.settings.gasUrl=g; S.settings.shareOn=on; S.settings.deviceName=dev;
+  S.settings.baseDate=todayStr();   // 基準日は復元後も「今日」固定
   S.backups=keepBackups; S.cloud=keepCloud;
   S.funes=S.funes||{};S.futureFunes=S.futureFunes||{};S.orders=S.orders||[];S.stocktakes=S.stocktakes||[];S.boms=S.boms||{};
   save(); initUI();
@@ -1697,15 +1713,23 @@ function busyPushBoard(key,who){
 }
 
 /* =================== LIVE (GAS) =================== */
-function fetchLive(){
+function fetchLive(silent){
   const url=(S.settings.gasUrl||'').trim();
-  if(!url){alert('設定画面で GAS の URL を入れてください。\n未設定のうちは「サンプル荷造数」で試せます。');switchView('settings');return;}
+  if(!url){if(!silent){alert('設定画面で GAS の URL を入れてください。\n未設定のうちは「サンプル荷造数」で試せます。');switchView('settings');}return;}
   const cb='shizaiCb_'+Date.now();
   window[cb]=(data)=>{try{applyLive(data);}finally{delete window[cb];sc.remove();}};
   const sc=document.createElement('script');const sep=url.includes('?')?'&':'?';
   sc.src=url+sep+'type=shizaiUsage&start='+encodeURIComponent(S.settings.startDate)+'&end='+encodeURIComponent(S.settings.baseDate)+'&callback='+cb;
-  sc.onerror=()=>{alert('取得に失敗しました。URL・デプロイ・共有設定をご確認ください。');sc.remove();delete window[cb];};
+  sc.onerror=()=>{if(!silent)alert('取得に失敗しました。URL・デプロイ・共有設定をご確認ください。');sc.remove();delete window[cb];};
   document.body.appendChild(sc);
+}
+// 開くたび・一定間隔ごとに自動で発注書の最新を取り込む（手動「発注書から取得」を押し忘れても古いままにならないように）
+function autoFetchLive(){
+  const t=todayStr();
+  if(S.settings.baseDate!==t){ S.settings.baseDate=t; const el=document.getElementById('baseDate'); if(el)el.value=t; save(); }
+  const url=(S.settings.gasUrl||'').trim();
+  if(!url)return;
+  fetchLive(true);
 }
 function applyLive(data){
   if(!data||!data.rows){alert('データ形式が想定と違います');return;}
@@ -1773,7 +1797,7 @@ function cloudCheckNow(){ if(!shareEnabled())return;
 }
 // クラウドに保存するデータ（PCごとの設定は除く。cloudメタも除く）
 function stateForCloud(){ const c=JSON.parse(JSON.stringify(S)); delete c.cloud; delete c.backups; // 月末バックアップは専用シートに別保存（日次同期は軽く保つ）
-  if(c.settings){ delete c.settings.gasUrl; delete c.settings.shareOn; delete c.settings.deviceName; }
+  if(c.settings){ delete c.settings.gasUrl; delete c.settings.shareOn; delete c.settings.deviceName; delete c.settings.baseDate; }
   return JSON.stringify(c); }
 // JSONP読み取り（file://でも動く）
 function cloudJsonp(type,onData,onErr,extra){
@@ -1802,6 +1826,7 @@ function applyCloudState(cloudS,meta){
   S=cloudS; S.settings=S.settings||{};
   S.settings=Object.assign({safetyDays:30,scrapAlertPct:10},S.settings);
   S.settings.gasUrl=g; S.settings.shareOn=on; S.settings.deviceName=dev;
+  S.settings.baseDate=todayStr();   // 基準日はPCごとに「今日」固定（クラウドの値では上書きしない）
   S.backups=keepBackups;
   S.funes=S.funes||{};S.orders=S.orders||[];S.stocktakes=S.stocktakes||[];S.boms=S.boms||{};
   S.cloud={rev:Number(meta.rev)||0,savedAt:meta.savedAt||'',savedBy:meta.savedBy||''};
@@ -1888,7 +1913,7 @@ function initCloud(){
 function saveSettings(){
   S.settings.gasUrl=document.getElementById('gasUrl').value.trim();
   S.settings.startDate=document.getElementById('startDate').value||'2026-05-01';
-  S.settings.baseDate=document.getElementById('baseDate').value||todayStr();
+  S.settings.baseDate=todayStr();   // 基準日は常に「今日」（手入力欄は読取専用）
   S.settings.safetyDays=Number(document.getElementById('safetyDays').value||0);
   S.settings.scrapAlertPct=Number(document.getElementById('scrapAlertPct').value||0);
   save();document.getElementById('settingsHint').textContent='保存しました。';renderGasUrlNote();recalcAll();
@@ -1926,7 +1951,8 @@ function initUI(){
   if(location.hash==='#stock')switchView('stock');
 }
 window.addEventListener('hashchange',()=>{if(location.hash==='#stock')switchView('stock');});
-load();initUI();initCloud();autoFetchGloves();
+load();initUI();initCloud();autoFetchGloves();autoFetchLive();
+setInterval(autoFetchLive,30*60*1000);   // 30分ごとに自動で発注書の最新を取り込み、常に「今日まで」の状態を保つ
 </script>
 </body>
 </html>

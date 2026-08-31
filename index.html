@@ -3447,6 +3447,11 @@
      ・1セクションが error でも他は反映される（GAS側で各処理を try 済み）。 */
   function centerApplyBundle_(d){
     if(!d) return;
+    // 🧰 資材管理アプリのアラート要約（day.shizai）：他PCの荷造り状態の未送信変更とは無関係なので、
+    //    _nzsSaving/_nzsDirty のガードに関係なく毎回反映する（＝資材アプリを開いていないPCでもアラートが出る）。
+    if(d.nizukuriState && !d.nizukuriState.error && d.nizukuriState.json){
+      try{ var _dObj = JSON.parse(d.nizukuriState.json) || {}; matApplyCloudAlerts_((_dObj.day || {}).shizai || null); }catch(e){}
+    }
     // ③ 本日荷造りの状態＋当日限り値（day）：未送信の変更が無いときだけ取り込む
     if(d.nizukuriState && !d.nizukuriState.error && !(_nzsSaving || _nzsDirty)){
       _nzsLoaded = true; var ns = d.nizukuriState;
@@ -3629,8 +3634,11 @@
     if(hash){ url=url.split('#')[0]+hash; }
     window.open(url,'_blank');
   }
+  var shizaiCloudAlerts=null;   // 🧰 30秒ごとの まとめ取得（bundle）で他PCから届く資材アラート要約（同一PCで資材アプリを開いていなくても届く）
+  function matApplyCloudAlerts_(a){ shizaiCloudAlerts=a||null; matLoadAlerts(); }
   function matLoadAlerts(){
-    var a=null; try{ a=JSON.parse(localStorage.getItem('shizai_alerts')||'null'); }catch(e){}
+    var a=shizaiCloudAlerts;
+    if(!a){ try{ a=JSON.parse(localStorage.getItem('shizai_alerts')||'null'); }catch(e){} }
     var grid=document.getElementById('matGrid');
     var badge=document.getElementById('matAlertBadge');
     if(!a){
@@ -3671,7 +3679,7 @@
     }catch(e){}
     // ① 資材確認：発注推奨（在庫切れ予定）＋納品遅延＝“足りない資材”があるとき
     try{
-      var a=JSON.parse(localStorage.getItem('shizai_alerts')||'null');
+      var a=shizaiCloudAlerts; if(!a){ a=JSON.parse(localStorage.getItem('shizai_alerts')||'null'); }
       var short=a ? (((a.reorder&&a.reorder.length)||0)+((a.deliverLate&&a.deliverLate.length)||0)) : 0;
       if(short>0) items.push('<div class="item" style="cursor:pointer" onclick="openShizaiApp()" title="資材管理アプリを開く">🧰 資材確認（'+short+'件）</div>');
     }catch(e){}
