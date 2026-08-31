@@ -2987,7 +2987,10 @@
     haichiSetText_('j-kg',    haichiNum_(tKg));
     haichiSetText_('j-cs-kg', haichiNum_(tCs));
     // ① 生産者ぶんを差し引いたときは、いくら差し引いたかを小さく出す
-    haichiSetText_('j-kg-note', '作った分の合計（CS・生産者分を除く）' + (p.seisan > 0 ? '　生産者 −' + haichiNum_(p.seisan) + 'kg' : ''));
+    //   ＝実際にこのタイル（荷造りkg）から引いているのはCSを除いた生産者main分だけ（CS分は右のCSキロタイル側で別途控除）なので、
+    //     表示もその金額（seisan − seisanCs）に合わせる（以前は生産者合計＝CS込みの値を出していて実際の控除額と食い違っていた）。
+    var seisanMain = p.seisan - p.seisanCs;
+    haichiSetText_('j-kg-note', '作った分の合計（CS・生産者分を除く）' + (seisanMain > 0 ? '　生産者 −' + haichiNum_(seisanMain) + 'kg' : ''));
     var bud = tFune > 0 ? (tKg / tFune) : null;           // 歩留まり＝荷造りkg（CS除く） ÷ 舟数
     boardData.jissekiBudomari = bud;
     haichiSetText_('j-budomari', bud != null ? haichiNum_(bud, 1) : '--');
