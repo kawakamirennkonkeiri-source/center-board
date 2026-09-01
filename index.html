@@ -770,6 +770,7 @@
   <div class="view-switch">
     <button class="tab active" id="tab-board"    onclick="switchView('board')"><span class="ico">📊</span>電子黒板</button>
     <button class="tab"        id="tab-nizukuri" onclick="switchView('nizukuri')"><span class="ico">📦</span>本日荷造り</button>
+    <button class="tab"        id="tab-skudiff"  onclick="switchView('skudiff')"><span class="ico">🔍</span>進捗差分</button>
     <button class="tab"        id="tab-haichi"   onclick="switchView('haichi')"><span class="ico">🗺️</span>配置図</button>
     <button class="tab"        id="tab-yohaichi" onclick="switchView('yohaichi')"><span class="ico">🔮</span>配置図（予測）</button>
     <button class="tab"        id="tab-hojo"     onclick="switchView('hojo')"><span class="ico">🚜</span>圃場（畑）</button>
@@ -948,6 +949,43 @@
       入りきらない分は<b>一番先の日の行に上乗せ</b>して「超過」表示のまま残るので、<b>翌日以降また同じボタンで先へ送れます</b>。作った合計は変わらないので<b>本日実績・歩留まりは動きません</b>。振り分け先が画面に無いときは「＋ 先の日を追加」で先の発注を表示してください。</div>
   </div><!-- /view-nizukuri -->
 
+  <!-- ===== 進捗差分：本日実績（黒板）と発注書の差を、取引先×区分ごとに見る（本日実績タイルとは別画面） ===== -->
+  <div id="view-skudiff" class="view">
+    <style>
+      #view-skudiff .sd-table{ padding:10px 24px 20px; }
+      #view-skudiff .sd-head, #view-skudiff .sd-row{
+        display:grid; grid-template-columns:2fr 1fr 1fr 1fr; gap:8px; align-items:center;
+      }
+      #view-skudiff .sd-head{
+        font-size:12px; font-weight:800; color:var(--muted); padding:4px 12px; border-bottom:2px solid var(--grid);
+      }
+      #view-skudiff .sd-row{
+        background:var(--surface-1); border:1px solid var(--border); border-radius:10px;
+        padding:8px 12px; margin-top:6px; font-size:14px; font-weight:700; color:var(--text-primary);
+      }
+      #view-skudiff .sd-row .r{ text-align:right; font-variant-numeric:tabular-nums; }
+      #view-skudiff .sd-head .r{ text-align:right; }
+    </style>
+    <div class="nz-toolbar">
+      <div style="font-size:17px;font-weight:800;color:var(--text-primary);">🔍 進捗差分（本日ぶん・取引先×区分ごと）</div>
+      <button class="nz-cbtn" onclick="renderSkuDiff()">🔄 今すぐ更新</button>
+    </div>
+    <div class="nz-hint" style="margin:0 0 10px;">
+      「本日実績」タイルの<b>合計の差</b>が、どの取引先・区分で発生しているかを一覧にします。<br>
+      <b>黒板実績kg</b>＝この画面の「本日荷造り」で入力した<b>本日作った分</b>（キロ換算）／<b>発注書kg</b>＝発注書に書かれている本日分の数量（キロ換算）。<br>
+      ※これは<b>本日ぶんの発注1行ごとの単純比較</b>です。「本日実績」タイルの合計差（生産者・CS調整後の数字）とは計算方法が異なるため、金額は一致しません。<b>どのSKUに差が出ているかの手がかり</b>としてお使いください。
+    </div>
+    <div class="sd-table">
+      <div class="sd-head">
+        <div>取引先・区分（入数）</div>
+        <div class="r">黒板実績kg</div>
+        <div class="r">発注書kg</div>
+        <div class="r">差（黒板−発注書）</div>
+      </div>
+      <div id="skudiff-rows"><!-- 行をJSで生成 --></div>
+    </div>
+  </div><!-- /view-skudiff -->
+
   <!-- ===== ① 配置図（独立タブ） ===== -->
   <div id="view-haichi" class="view">
     <div class="haichi-tab-toolbar">
@@ -1109,7 +1147,7 @@
   function openLayoutModal(){ switchView('haichi'); }
 
   /* ===== 画面切り替え（電子黒板／本日荷造り／配置図／圃場／生産者／舟数モニター） ===== */
-  const VIEW_NAMES = ['board','nizukuri','haichi','yohaichi','hojo','seisan','funes'];
+  const VIEW_NAMES = ['board','nizukuri','skudiff','haichi','yohaichi','hojo','seisan','funes'];
   function switchView(name){
     VIEW_NAMES.forEach(function(v){
       var view = document.getElementById('view-'+v);
@@ -1117,6 +1155,7 @@
       if(view) view.classList.toggle('active', v===name);
       if(tab)  tab.classList.toggle('active', v===name);
     });
+    if(name==='skudiff' && typeof renderSkuDiff==='function') renderSkuDiff();
     if(name==='haichi'){ ensureFullFrame(); haichiRefitFrame_(); }
     if(name==='yohaichi'){ planOnOpen(); planRefitFrame_(); }   // 🔮 配置図（予測）
     if(name==='hojo')   hojoOnOpen();
@@ -1658,7 +1697,39 @@
       }
     }
     if(typeof fitBoard==='function') fitBoard();   // ⑦ 行数が変わったら1画面に合わせ直す
+    if(typeof renderSkuDiff==='function') renderSkuDiff();   // 🔍 進捗差分タブも同時に最新化（開いていなくても軽いので毎回計算）
   }
+  // 🔍 進捗差分：本日ぶんの発注1行ごとに、黒板の「本日作った分」kgと発注書のkgを突き合わせる。
+  //   数量(o.kg)・実績(nzMadeToday×nyusu)とも既存の NZ_ORDERS / NZS.prod から計算するだけなので、
+  //   新たなサーバー通信は不要（「本日実績」タイルの合計比較(checkProgressMatch_)を明細レベルに分解したもの）。
+  function computeSkuDiff_(){
+    var todayKey = null;
+    NZ_DATES.forEach(function(d){ if(d.note==='本日') todayKey = d.key; });
+    if(!todayKey && NZ_DATES.length) todayKey = NZ_DATES[0].key;
+    if(!todayKey) return [];
+    return NZ_ORDERS.filter(function(o){ return o.date===todayKey; }).map(function(o){
+      var made = nzMadeToday(nzRowKey(o)) * (Number(o.nyusu)||0);
+      var order = Number(o.kg)||0;
+      return { cust:o.cust, bunrui:o.bunrui||'', nyusu:o.nyusu||0, made:made, order:order, diff:made-order };
+    }).sort(function(a,b){ return Math.abs(b.diff)-Math.abs(a.diff); });
+  }
+  function renderSkuDiff(){
+    var wrap = document.getElementById('skudiff-rows');
+    if(!wrap) return;   // タブ未表示（旧キャッシュ等）でも落ちないように
+    var rows = computeSkuDiff_();
+    if(!rows.length){ wrap.innerHTML = '<div class="news-empty" style="padding:10px 4px;">本日の発注がまだありません</div>'; return; }
+    wrap.innerHTML = rows.map(function(r){
+      var ok = Math.abs(r.diff) < 0.1;
+      var diffTxt = (r.diff>0?'+':'') + nzFmtKg(r.diff);
+      return '<div class="sd-row">'
+        + '<div>' + esc_(r.cust) + (r.bunrui?('　'+esc_(r.bunrui)):'') + '　<span style="color:var(--muted);font-size:12px;">('+r.nyusu+')</span></div>'
+        + '<div class="r">' + nzFmtKg(r.made) + '</div>'
+        + '<div class="r">' + nzFmtKg(r.order) + '</div>'
+        + '<div class="r" style="color:' + (ok?'var(--green)':'#d9534f') + ';">' + (ok?'一致':diffTxt) + '</div>'
+        + '</div>';
+    }).join('');
+  }
+  function esc_(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 
   // 表示状態
   let nzDaysWanted = 3;   // 今日から何日分
@@ -1923,10 +1994,50 @@
   // ---- クラウド同期（保存はfetch POST・取得はJSONP。※httpsなのでfetchが使える）----
   function nzDayPatchEmpty_(){ var dp=_nzsPatch.day||{}; return ['targetOvr','amSnap','offZones','absent','busy','plan','ampmOvr','funeStock','seisanPlan'].every(function(k){ return !Object.keys(dp[k]||{}).length; }) && !('helpEnd' in dp); }
   function nzPatchEmpty_(){ return !Object.keys(_nzsPatch.status).length && !Object.keys(_nzsPatch.prod).length && !Object.keys(_nzsPatch.prevOvr).length && nzDayPatchEmpty_(); }
+  // ★未送信の変更（_nzsPatch）はこれまでメモリ上だけで保持していたため、送信が終わる前に
+  //   タブが閉じられる／再読み込みされる（PC再起動・日付またぎ等）と消滅し、次回起動時の
+  //   nzStatePull が古いサーバー値で NZS.status 等を無条件上書きしてしまっていた
+  //  （＝「確定/作成済みにしたのに翌日には未確定に戻る」の根本原因）。
+  //   localStorage にも控えて、次回起動時に検知・再送できるようにする。
+  function nzPersistPendingPatch_(){
+    try{
+      if(nzPatchEmpty_()) localStorage.removeItem('nz_pending_patch');
+      else localStorage.setItem('nz_pending_patch', JSON.stringify(_nzsPatch));
+    }catch(e){}
+  }
+  function nzRestorePendingPatch_(){
+    try{
+      var raw = localStorage.getItem('nz_pending_patch');
+      if(!raw) return null;
+      var p = JSON.parse(raw);
+      if(!p || typeof p !== 'object') return null;
+      p.status = p.status || {}; p.prod = p.prod || {}; p.prevOvr = p.prevOvr || {}; p.day = p.day || {};
+      return p;
+    }catch(e){ return null; }
+  }
+  // 復元した未送信分を、サーバーから取得した最新状態の上に重ねて適用する（自分の未送信の変更を優先）
+  function nzApplyPendingPatchToState_(p){
+    if(!p) return;
+    Object.keys(p.status||{}).forEach(function(k){ if(p.status[k]==null) delete NZS.status[k]; else NZS.status[k] = p.status[k]; });
+    Object.keys(p.prevOvr||{}).forEach(function(k){ if(p.prevOvr[k]==null) delete NZS.prevOvr[k]; else NZS.prevOvr[k] = p.prevOvr[k]; });
+    Object.keys(p.prod||{}).forEach(function(k){
+      NZS.prod[k] = NZS.prod[k] || {};
+      Object.keys(p.prod[k]).forEach(function(dd){ var v = p.prod[k][dd]; if(!v) delete NZS.prod[k][dd]; else NZS.prod[k][dd] = v; });
+      if(!Object.keys(NZS.prod[k]).length) delete NZS.prod[k];
+    });
+    if(p.day){
+      nzDayEnsure_();
+      ['targetOvr','amSnap','offZones','absent','busy','plan','ampmOvr','funeStock','seisanPlan'].forEach(function(sec){
+        Object.keys(p.day[sec]||{}).forEach(function(k){ var v = p.day[sec][k]; if(v==null) delete NZS.day[sec][k]; else NZS.day[sec][k] = v; });
+      });
+      if('helpEnd' in p.day) NZS.day.helpEnd = p.day.helpEnd;
+    }
+  }
   function nzStateScheduleSave(){
     if(!CENTER_ENDPOINT) return;      // 未接続ならローカル控えのみ
     if(!_nzsLoaded) return;           // クラウド未読込のうちは送らない（種まきはpull側で判定）
     _nzsDirty = true;
+    nzPersistPendingPatch_();
     if(_nzsTimer) clearTimeout(_nzsTimer);
     _nzsTimer = setTimeout(nzStateSaveCloud, 1200);
   }
@@ -1941,10 +2052,10 @@
       .then(function(r){ return r.json(); })
       .then(function(d){
         _nzsSaving = false;
-        if(d && d.ok){ _nzsDirty = !nzPatchEmpty_(); if(_nzsDirty) nzStateScheduleSave(); }
-        else { nzPatchMergeBack_(patch); _nzsDirty = true; setTimeout(nzStateSaveCloud, 1500); }   // 失敗→戻して再送
+        if(d && d.ok){ _nzsDirty = !nzPatchEmpty_(); nzPersistPendingPatch_(); if(_nzsDirty) nzStateScheduleSave(); }
+        else { nzPatchMergeBack_(patch); _nzsDirty = true; nzPersistPendingPatch_(); setTimeout(nzStateSaveCloud, 1500); }   // 失敗→戻して再送
       })
-      .catch(function(){ _nzsSaving = false; nzPatchMergeBack_(patch); _nzsDirty = true; setTimeout(nzStateSaveCloud, 3000); });
+      .catch(function(){ _nzsSaving = false; nzPatchMergeBack_(patch); _nzsDirty = true; nzPersistPendingPatch_(); setTimeout(nzStateSaveCloud, 3000); });
   }
   // 送信失敗した変更分を未送信バッファへ戻す（新しい変更は上書きしないよう既存優先）
   function nzPatchMergeBack_(p){
@@ -2081,7 +2192,23 @@
   }
 
   // 起動：ローカル控えを読む → クラウドの状態を取得 → 荷造り一覧を表示（状態・作った分が反映された状態で描画）
-  function nzBootstrap(){ nzStateInitLocal(); nzStatePull(function(){ nzLoadLive(); }); }
+  function nzBootstrap(){
+    nzStateInitLocal();
+    var pendingPatch = nzRestorePendingPatch_();   // 前回、送信が終わる前に閉じられた変更が残っていないか
+    nzStatePull(function(){
+      if(pendingPatch){
+        // サーバーの最新値を取り込んだ直後に、未送信だった自分の変更を上へ重ねて再送する
+        // （サーバー側が古いままだったせいで、確定/作成済み等が消えて見えていた分を復元）
+        nzApplyPendingPatchToState_(pendingPatch);
+        nzMirrorLocal();
+        _nzsPatch = pendingPatch;
+        _nzsDirty = true;
+        nzPersistPendingPatch_();
+        setTimeout(nzStateSaveCloud, 300);
+      }
+      nzLoadLive();
+    });
+  }
   // 定期取得は「まとめ取得（centerPollBundle・30秒）」に一本化した（下部）。ここでは起動時の初回だけ行う。
   window.addEventListener('DOMContentLoaded', nzBootstrap);
   // ※定期取得はまとめ取得（centerPollBundle・30秒）へ統合。ここでの5分ポーリングは廃止。

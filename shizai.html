@@ -484,6 +484,7 @@ const SEED_SKUS = [
 ];
 /* =================== STATE =================== */
 const LS='shizai_app_v2';
+const DIRTY_LS=LS+'_dirty';   // 未送信の変更が残っているか(ページを閉じても消えないようlocalStorageで永続化)
 let S=null;
 function skuKey(t,k,i){return t+'|'+k+'|'+i;}
 function bunruiTag(k){
@@ -1250,7 +1251,8 @@ function commitStocktake(){
   createMonthlyBackup(month,by,date);
   // 使用(荷造数)は新期間ぶんに一旦クリア（実データはGAS再取得／手入力で入れ直し）
   S.funes={};
-  save();alert(updated+'品目を確定しました（担当：'+by+'）。基準在庫を更新し、起点日を '+S.settings.startDate+' にしました。\n\n💾 '+month+' のバックアップを保存しました（バックアップタブで確認・復元できます）。');
+  save();cloudPushNow();
+  alert(updated+'品目を確定しました（担当：'+by+'）。基準在庫を更新し、起点日を '+S.settings.startDate+' にしました。\n\n💾 '+month+' のバックアップを保存しました（バックアップタブで確認・復元できます）。'+(shareEnabled()?'\n\n☁ ほかのPCにも送信しています…':''));
   initUI();switchView('dash');
 }
 // 🔁 棚卸再確認：月の途中で、入力した実在庫に現在庫だけを合わせる（破棄率・起点日・バックアップは触らない）
@@ -1859,7 +1861,9 @@ function applyCloudState(cloudS,meta){
 }
 // 編集があったら少し待って自動送信
 function cloudMarkDirty(){ if(!shareEnabled())return; cloudDirty=true;
+  try{ localStorage.setItem(DIRTY_LS,'1'); }catch(e){}
   clearTimeout(cloudPushTimer); cloudPushTimer=setTimeout(()=>cloudPush(false),1500); }
+function clearCloudDirtyFlag(){ try{ localStorage.removeItem(DIRTY_LS); }catch(e){} }
 // クラウドへ保存（POST）
 function cloudPush(force,onDone){
   if(!shareEnabled()){ onDone&&onDone(false); return; }
@@ -1872,7 +1876,7 @@ function cloudPush(force,onDone){
     .then(res=>{
       cloudBusy=false;
       if(res.ok){ S.cloud.rev=res.rev; S.cloud.savedAt=res.savedAt||''; S.cloud.savedBy=S.settings.deviceName||'';
-        cloudDirty=false; localStorage.setItem(LS,JSON.stringify(S));
+        cloudDirty=false; clearCloudDirtyFlag(); localStorage.setItem(LS,JSON.stringify(S));
         setSyncStatus('🟢 保存済み（rev'+res.rev+' '+(res.savedAt||'')+'）','#137333'); onDone&&onDone(true); }
       else if(res.conflict){ showConflict(res); onDone&&onDone(false); }
       else { setSyncStatus('保存エラー：'+(res.error||'不明'),'#d9534f'); onDone&&onDone(false); }
@@ -1880,7 +1884,7 @@ function cloudPush(force,onDone){
     .catch(()=>{ cloudBusy=false;   // POSTの返答がCORSで読めない環境向け：metaで反映を確認
       cloudJsonp('shizaiMeta',(m)=>{ const rev=Number(m.rev)||0;
         if(rev>S.cloud.rev){ S.cloud.rev=rev; S.cloud.savedAt=m.savedAt||''; S.cloud.savedBy=m.savedBy||'';
-          cloudDirty=false; localStorage.setItem(LS,JSON.stringify(S));
+          cloudDirty=false; clearCloudDirtyFlag(); localStorage.setItem(LS,JSON.stringify(S));
           setSyncStatus('🟢 保存済み（rev'+rev+'）','#137333'); onDone&&onDone(true); }
         else { setSyncStatus('保存エラー：接続失敗（POST）','#d9534f'); onDone&&onDone(false); } },
         ()=>{ setSyncStatus('保存エラー：接続失敗','#d9534f'); onDone&&onDone(false); });
@@ -1929,7 +1933,16 @@ function cloudSyncNow(){
   else cloudPullFull(()=>setSyncStatus('🔄 最新を取り込みました','#137333'));
 }
 function initCloud(){
-  if(shareEnabled()){ setSyncStatus('接続中…','#555'); cloudPullFull(()=>{}); startCloudPoll(); }
+  if(shareEnabled()){
+    let pending=false; try{ pending=localStorage.getItem(DIRTY_LS)==='1'; }catch(e){}
+    if(pending){
+      setSyncStatus('前回の未送信の変更を送信中…','#555');
+      cloudDirty=true;
+      cloudPush(false,()=>{ startCloudPoll(); });
+    }else{
+      setSyncStatus('接続中…','#555'); cloudPullFull(()=>{}); startCloudPoll();
+    }
+  }
   else setSyncStatus(S.settings.shareOn?'共有：オン（GAS URL未設定）':'共有：オフ', S.settings.shareOn?'#d9534f':'');
 }
 
