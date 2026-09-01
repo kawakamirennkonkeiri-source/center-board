@@ -92,6 +92,7 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
 <nav id="nav">
   <button data-v="dash" class="active">📊 在庫ダッシュボード</button>
   <button data-v="usage">📦 使用（発注書連携）</button>
+  <button data-v="glove">🧤 手袋</button>
   <button data-v="orders">🚚 発注履歴</button>
   <button data-v="stock">📋 月末棚卸</button>
   <button data-v="backup">💾 バックアップ</button>
@@ -139,20 +140,39 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
       <tbody></tbody>
     </table>
   </div>
+</section>
 
-  <!-- ① 手袋（シフト連動）＝センター1人 × 8枚／日 -->
-  <div class="sec-title" style="margin-top:22px">🧤 手袋（シフト連動）</div>
+<!-- ============ GLOVES ============ -->
+<section id="view-glove" class="view">
+  <div class="sec-title">🧤 手袋（人のリスト × シフト出勤 → 消費予測）</div>
+  <div class="hint">
+    <b>①</b> 下の「人のリスト」に、手袋を使う人の<b>氏名とサイズ</b>を登録します（<b>このアプリで管理</b>＝シフト表を直接編集する必要はありません）。<br>
+    <b>②</b>「🔗 シフトから取得」を押すと、<b>その日のシフトが「休」以外＝出勤の人</b>をシフト表から取得し、①のリストと氏名を突き合わせて<b>日別・サイズ別の出勤人数</b>を計算します。<br>
+    <b>③</b> 使用枚数＝出勤人数 × 1人あたりの枚数。過去分は理論使用量へ、<b>先のシフト（提出済みの予定）は消費予測</b>として在庫切れ予定日・「45日分」の基準にそのまま使われます。荷造数（発注書）とは無関係なので BOM には登録しません。<br>
+    ①のリストに<b>まだ登録していない人</b>は「サイズ未記入」としてカウントされます（下に一覧、クリックでリストに追加できます）。<br>
+    <span class="muted">※最初にシフトから取得したとき、<b>今シフトにいる人と、既に登録済みのサイズ</b>を自動でこのリストに読み込みます（1回だけ）。以降はこのリストが元になります。</span>
+  </div>
+
+  <div class="sec-title" style="margin-top:10px;font-size:14px">人のリスト（氏名 × サイズ）
+    <button class="btn small" onclick="gloveAddPerson()">＋ 追加</button>
+  </div>
+  <div class="tablewrap">
+    <table id="glovePeopleTable">
+      <thead><tr><th class="l">氏名</th><th>サイズ</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div id="gloveMissingWrap" class="hint" style="display:none"></div>
+
+  <div class="sec-title" style="margin-top:22px">シフト連動の取得
+    <button class="btn small" onclick="fetchGloves()">🔗 シフトから取得（GAS）</button>
+  </div>
   <div class="toolbar">
-    <button class="btn" onclick="fetchGloves()">🔗 シフトから取得（GAS）</button>
     <label style="font-weight:700;font-size:13px">1人あたり
       <input type="number" id="glovePer" min="1" step="1" style="width:64px" onchange="setGlovePer(this.value)"> 枚／日</label>
     <label style="font-weight:700;font-size:13px"><input type="checkbox" id="gloveOn" onchange="setGloveOn(this.checked)"> 在庫計算に反映する</label>
     <span class="muted" id="gloveMeta"></span>
   </div>
-  <div class="hint">シフト表の<b>サイズ列</b>に書いてある各人の手袋サイズと、その日のシフトが<b>「休」以外＝出勤</b>の人数から、
-    <b>使用枚数＝出勤人数 × 1人あたりの枚数</b> を日別・サイズ別に計算します。<b>先の日のシフト</b>も同じように読むので、
-    <b>「45日分の在庫があるか」の判定</b>にもそのまま使えます（③の基準）。荷造数（発注書）とは無関係なので BOM には登録しません。<br>
-    サイズは<b>どれか1枚の月シートに書いてあれば全部の月に効きます</b>（氏名で突き合わせ）。</div>
   <div id="gloveDiag" class="hint" style="display:none"></div>
   <div class="tablewrap">
     <table id="gloveTable">
@@ -186,7 +206,7 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
   棚卸をした日を選び、<b>実際の在庫数</b>を入力して「<b>この日の棚卸を確定</b>」すると：<br>
   ① 差（理論在庫−実在庫＝ロス）から <b>破棄率＝ロス÷理論使用量</b> を自動計算し、資材マスタの破棄率を更新（回数を重ねるほど精度UP）。<br>
   ② 実在庫を新しい基準在庫にリセット（＝ドリフトをゼロ点合わせ）／起点日を<b>棚卸日の翌日</b>へ／バックアップを保存。<br>
-  ③ 破棄率が <b id="stAlertPct">10</b>%（設定で変更可）を超えたら「⚠️破棄が多すぎ」を表示。<b>理由を書くとアラートが消えます</b>。<br>
+  ③ 破棄率が <b id="stAlertPct">10</b>%（設定で変更可）を超えると、下の表の判定が「⚠️破棄多い→理由記入」になります。<b>右の理由欄にその場で記入</b>してください（棚卸の記録として残ります）。<br>
   <b>🔁 棚卸再確認</b>＝月の途中で数え直したいとき用。<b>実在庫を入力して押すと、現在庫だけを今の実数に合わせます</b>（破棄率の学習・起点日の更新・バックアップは行いません）。<br>
   どちらのボタンも、先に<b>担当者名</b>を入れてから押してください（誰が棚卸したか記録されます）。
   </div>
@@ -535,7 +555,9 @@ function defaultState(){
     cloud:{rev:0,savedAt:'',savedBy:''}};
 }
 // ① 手袋（シフト連動）＝センター1人×8枚/日。サイズ別の出勤人数をシフトから取り、使用枚数を自動計算する。
-function defaultGlove(){ return {on:true,perPerson:8,map:{},days:{},sizes:[],missing:[],fetchedAt:'',note:''}; }
+// roster＝このアプリで管理する「人のリスト（氏名×サイズ）」。rawDays＝GASから取得した日別の出勤者名（roster変更時の再計算用キャッシュ）。
+function defaultGlove(){ return {on:true,perPerson:8,map:{},days:{},sizes:[],missing:[],fetchedAt:'',note:'',roster:[],rawDays:[],gasSizes:[],rosterSeeded:false}; }
+const GLOVE_SIZE_OPTIONS=['S','M','L'];
 function todayStr(){const d=new Date();const p=n=>String(n).padStart(2,'0');
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());}
 // 電子黒板（index.html）と同じ「センター連携」GASの /exec。
@@ -831,14 +853,8 @@ function buildAlerts(){
         runoutDate:r.runoutDate||null,runoutDays:r.runoutDays});
     }
   });
-  // 破棄率 異常（未了承のもの）
-  const pct=Number(S.settings.scrapAlertPct||0);
-  S.materials.forEach(m=>{
-    if(Number(m.scrapRate||0)>pct){
-      const st=[...S.stocktakes].reverse().find(s=>s.materialId===m.id);
-      if(!st||!st.reason) scrap.push({name:m.name,rate:m.scrapRate});
-    }
-  });
+  // 破棄率が高い理由の記入は「月末棚卸」の画面内（棚卸のその場）で行う方式にしたため、
+  // ここでの継続的な「理由未記入」アラートは出さない（2026-09-01・棚卸を入れた後に大量に出てしまうとの指摘で撤去）。
   return {reorder,deliver,scrap,periodic,bomMissing,rows};
 }
 function publishAlerts(){
@@ -895,14 +911,13 @@ function renderDash(){
   }
   // ① 手袋：サイズ未記入の人がいると枚数が数えきれない
   if(gloveOn()&&gloveNoSizeTotal()>0){
-    items.push(`<span class="pill scrap" style="cursor:pointer" onclick="switchView('usage')">🧤 手袋サイズ未記入の人がいます（${esc((S.glove.missing||[]).slice(0,5).join('・'))}${(S.glove.missing||[]).length>5?' ほか':''}）→ シフト表のサイズ列へ</span>`);
+    items.push(`<span class="pill scrap" style="cursor:pointer" onclick="switchView('glove')">🧤 手袋の人のリストに無い人がいます（${esc((S.glove.missing||[]).slice(0,5).join('・'))}${(S.glove.missing||[]).length>5?' ほか':''}）→ 手袋タブへ</span>`);
   }
   if(st.due)items.push(`<span class="pill scrap" style="cursor:pointer" onclick="switchView('stock')">📋 月末棚卸が未入力です（${st.month}）→ 入力する</span>`);
   a.bomMissing.forEach(b=>items.push(`<span class="pill reorder" style="cursor:pointer" onclick="jumpToBom('${esc(b.tori)}')" title="荷造されているのに使う資材が未設定＝在庫予測に反映されません">📦 ${esc(b.name)} BOM未設定 → 設定する</span>`));
   a.reorder.forEach(r=>items.push(`<span class="pill reorder">🛒 ${r.name}（${r.cover?('あと'+(r.cover.have!=null?fmt(r.cover.have):'0')+'日分 ＜ 基準'+fmt(r.cover.days)+'日分'):(r.threshold!=null?'残り '+fmt(r.stock)+' ≤ しきい値 '+fmt(r.threshold):(r.runoutDate?'在庫 '+fmt(r.stock)+' ／ 切れ予定 '+r.runoutDate.slice(5)+'（あと'+fmt(r.runoutDays)+'日）':'在庫 '+fmt(r.stock)+(r.days!=null?' ／ あと'+r.days+'日':'')))}${r.hinode?'／日野出 '+fmt(r.hinode):''}）</span>`));
   a.deliver.filter(d=>d.dueReached).forEach(d=>items.push(`<span class="pill deliver">🚚 ${d.name} 納品予定（${d.due||''}）${d.late?' <b>※遅延</b>':''}</span>`));
   a.periodic.forEach(p=>items.push(`<span class="pill" style="background:#e0f2fe;color:#075985">🔔 ${p.name} 定期チェック時期（毎${p.days}日）</span>`));
-  a.scrap.forEach(s=>items.push(`<span class="pill scrap">🗑 ${s.name} 破棄率高い（${fmt1(s.rate)}%）理由未記入</span>`));
   rows.forEach(r=>{
     if(r.suggest==='off')items.push(`<span class="pill deliver" style="cursor:pointer" onclick="toggleSeason('${r.m.id}')">🕒 ${r.m.name} はそろそろ季節終わり → 季節外にする</span>`);
     if(r.suggest==='on')items.push(`<span class="pill" style="background:#dcfce7;color:#15803d;cursor:pointer" onclick="toggleSeason('${r.m.id}')">🌱 ${r.m.name} のシーズンです → シーズンに戻す</span>`);
@@ -1011,7 +1026,6 @@ function renderUsage(){
       <td class="l muted">${mats||'<span style="color:var(--danger)">BOM未設定</span>'}</td></tr>`;
   }).join('');
   document.getElementById('usageMeta').textContent=(S.live.isLive?'🟢 発注書ライブ':'🧪 手入力/サンプル')+'　SKU '+S.skus.length+'件';
-  renderGloves();
 }
 
 /* =================== ① 手袋（シフト連動）＝UI =================== */
@@ -1031,8 +1045,6 @@ function fetchGloves(silent){
     if(!silent)alert('取得に失敗しました。GASのURL・デプロイをご確認ください。');sc.remove();try{delete window[cb];}catch(e){}};
   document.body.appendChild(sc);
 }
-// 1→A, 2→B …（GASが返すサイズ列の番号を、シートの列の文字にして見せる）
-function colLetter(n){ n=Number(n||0); let s=''; while(n>0){ const m=(n-1)%26; s=String.fromCharCode(65+m)+s; n=(n-1-m)/26; } return s||'?'; }
 // 取得結果の診断を残す（うまくいかない時に画面で原因が分かるように）
 function gloveSetDiag(d){
   S.glove=S.glove||{};
@@ -1061,27 +1073,133 @@ function applyGloves(d,silent){
     if(silent)return;
     const st=(S.glove.diag&&S.glove.diag.stale);
     alert(st? 'いま動いているGASが古いバージョンです（手袋にまだ対応していません）。\n\nGASを新しい内容に貼り替えて「デプロイを管理 → 新バージョン」で再デプロイしてください。'
-            : 'シフトから手袋を読めませんでした。\n'+((d&&d.error)||'')+'\n\nシフト表のサイズ列（A列）に S/M/L が入っているかご確認ください。');
+            : 'シフトから手袋を読めませんでした。\n'+((d&&d.error)||'')+'\n\nシフト表に出勤の記録があるかご確認ください。');
     return;}
   S.glove.perPerson=Number(d.perPerson||S.glove.perPerson||8)||8;
-  S.glove.sizes=(d.sizes||[]).slice();
-  S.glove.missing=(d.missing||[]).slice();
+  S.glove.gasSizes=(d.sizes||[]).slice();
   S.glove.fetchedAt=new Date().toISOString();
-  const days={};
-  (d.days||[]).forEach(x=>{
-    const o=Object.assign({},x.bySize||{});
-    if(Number(x.noSize||0)>0)o.__noSize=Number(x.noSize);
-    days[x.date]=o;
+  // その日の出勤者「名前」をそのまま保持（サイズは①の人のリストで突き合わせる。roster変更時の再計算にも使う）
+  S.glove.rawDays=(d.days||[]).map(x=>({date:x.date,names:x.names,bySize:x.bySize,noSize:x.noSize}));
+  gloveSeedRosterFromShift_(d);
+  gloveRebuildDays_();
+  gloveSetDiag(d);
+  save();recalcAll();
+  if(silent)return;
+  alert('✓ シフトから取得しました。\n対象 '+(d.days||[]).length+'日分 ／ 1人 '+S.glove.perPerson+'枚'+
+    ((S.glove.missing||[]).length?('\n\n⚠ 人のリストに無い人： '+S.glove.missing.slice(0,10).join('・')+(S.glove.missing.length>10?' ほか':'')+'\n→ 手袋タブの「人のリスト」に追加してください'):''));
+}
+/* ==== 手袋：人のリスト（氏名×サイズ）＝このアプリで管理。シフトは「誰が出勤か」だけに使う ====
+   GASの出勤者名(rawDays)と①のリストを氏名で突き合わせ、日別・サイズ別の出勤人数(S.glove.days)を作り直す。
+   リストを編集するたびに呼べば、再取得しなくても消費予測にすぐ反映される。 */
+function gloveNameKeyC_(s){ return String(s==null?'':s).replace(/[\s　]/g,''); }
+function gloveRosterMap_(){
+  const map={};
+  (S.glove.roster||[]).forEach(p=>{ const k=gloveNameKeyC_(p.name); if(k&&p.size) map[k]=p.size; });
+  return map;
+}
+// 初回のシフト取得時だけ、①「今シフトにいる人」×②「旧・シート方式で既に記入済みのサイズ」を人のリストへ自動で入れておく
+// （曽我さん依頼＝ゼロから全員手入力させない）。2回目以降は自動で足さない＝このリストが正になり、消した人が生き返らないようにする。
+function gloveSeedRosterFromShift_(d){
+  if(S.glove.rosterSeeded)return;
+  S.glove.rosterSeeded=true;
+  const known={};   // 氏名キー → サイズ（旧方式でシートに書いてあった分。GASが people として返す）
+  Object.keys(d.people||{}).forEach(nm=>{ known[gloveNameKeyC_(nm)]=d.people[nm]; });
+  const rosterKeys={};
+  (S.glove.roster||[]).forEach(p=>{ rosterKeys[gloveNameKeyC_(p.name)]=true; });
+  // 「今シフトにいる人」＝取得期間内に一度でも出勤（休以外）した人。namesを持たない古いGAS応答では people 全員で代用。
+  const shiftNames={}; let hasNames=false;
+  (d.days||[]).forEach(x=>{ if(x.names){ hasNames=true; x.names.forEach(nm=>{ shiftNames[nm]=true; }); } });
+  if(!hasNames) Object.keys(d.people||{}).forEach(nm=>{ shiftNames[nm]=true; });
+  S.glove.roster=S.glove.roster||[];
+  Object.keys(shiftNames).forEach(nm=>{
+    const key=gloveNameKeyC_(nm); if(rosterKeys[key])return; rosterKeys[key]=true;
+    S.glove.roster.push({id:'GP'+Date.now()+Math.random().toString(36).slice(2,6),name:nm,size:known[key]||''});
+  });
+}
+function gloveRebuildDays_(){
+  const raw=S.glove.rawDays||[];
+  const map=gloveRosterMap_();
+  const days={}, missing=[], seen={};
+  raw.forEach(x=>{
+    if(x.names){   // 新しいGAS応答＝出勤者の名前が入っている→①のリストでサイズ判定
+      const bySize={}; let noSize=0;
+      x.names.forEach(nm=>{
+        const sz=map[gloveNameKeyC_(nm)];
+        if(sz){ bySize[sz]=(bySize[sz]||0)+1; }
+        else { noSize++; if(!seen[nm]){seen[nm]=true;missing.push(nm);} }
+      });
+      const o=Object.assign({},bySize); if(noSize>0)o.__noSize=noSize;
+      days[x.date]=o;
+    }else{   // 古いGAS応答（namesが無い＝未再デプロイ）＝従来どおりGAS側の集計をそのまま使う
+      const o=Object.assign({},x.bySize||{}); if(Number(x.noSize||0)>0)o.__noSize=Number(x.noSize);
+      days[x.date]=o;
+    }
   });
   S.glove.days=days;
+  S.glove.missing=missing;
+  const sizeSet={};
+  (S.glove.roster||[]).forEach(p=>{ if(p.size)sizeSet[p.size]=true; });
+  (S.glove.gasSizes||[]).forEach(sz=>{ if(sz)sizeSet[sz]=true; });
+  S.glove.sizes=Object.keys(sizeSet).length?Object.keys(sizeSet):GLOVE_SIZE_OPTIONS.slice();
   gloveAutoMap();
-  gloveSetDiag(d);
-  save();recalcAll();renderGloves();
-  if(silent)return;
-  alert('✓ シフトから取得しました。\n対象 '+(d.days||[]).length+'日分 ／ サイズ '+((d.sizes||[]).join('・')||'—')+' ／ 1人 '+S.glove.perPerson+'枚'+
-    ((d.missing||[]).length?('\n\n⚠ サイズ未記入： '+d.missing.join('・')):''));
+}
+function gloveAddPerson(){
+  S.glove.roster=S.glove.roster||[];
+  S.glove.roster.push({id:'GP'+Date.now()+Math.random().toString(36).slice(2,6),name:'',size:(S.glove.sizes&&S.glove.sizes[0])||GLOVE_SIZE_OPTIONS[0]});
+  save(); gloveRebuildDays_(); recalcAll();
+}
+function gloveSetPersonName(id,v){
+  const p=(S.glove.roster||[]).find(x=>x.id===id); if(!p)return;
+  p.name=String(v||'').trim(); save(); gloveRebuildDays_(); recalcAll();
+}
+function gloveSetPersonSize(id,v){
+  const p=(S.glove.roster||[]).find(x=>x.id===id); if(!p)return;
+  p.size=v; save(); gloveRebuildDays_(); recalcAll();
+}
+function gloveDelPerson(id){
+  if(!confirm('この人をリストから削除しますか？'))return;
+  S.glove.roster=(S.glove.roster||[]).filter(x=>x.id!==id);
+  save(); gloveRebuildDays_(); recalcAll();
+}
+// シフトに出ているのにリストに無い人を、ワンクリックでリストへ追加（サイズは追加後に選ぶ）
+function gloveQuickAdd(name){
+  S.glove.roster=S.glove.roster||[];
+  if(S.glove.roster.some(p=>gloveNameKeyC_(p.name)===gloveNameKeyC_(name)))return;
+  S.glove.roster.push({id:'GP'+Date.now()+Math.random().toString(36).slice(2,6),name,size:''});
+  save(); gloveRebuildDays_(); recalcAll();
+}
+function renderGloveRoster(){
+  const tb=document.querySelector('#glovePeopleTable tbody');
+  if(!tb)return;
+  const roster=S.glove.roster||[];
+  const sizeOpts=(sz)=>{
+    const opts=((S.glove.sizes&&S.glove.sizes.length)?S.glove.sizes:GLOVE_SIZE_OPTIONS).slice();
+    if(sz&&opts.indexOf(sz)<0)opts.push(sz);
+    return ['<option value="">（未設定）</option>'].concat(opts.map(s=>`<option value="${esc(s)}"${s===sz?' selected':''}>${esc(s)}</option>`)).join('');
+  };
+  tb.innerHTML=roster.length?roster.map(p=>`<tr>
+      <td class="l"><input class="cell" value="${esc(p.name)}" placeholder="氏名" onchange="gloveSetPersonName('${p.id}',this.value)"></td>
+      <td><select class="cell" onchange="gloveSetPersonSize('${p.id}',this.value)">${sizeOpts(p.size)}</select></td>
+      <td><button class="btn sec small" onclick="gloveDelPerson('${p.id}')">削除</button></td>
+    </tr>`).join('')
+    : '<tr><td colspan="3" class="l muted">まだ誰も登録されていません。「＋ 追加」で氏名とサイズを登録してください。</td></tr>';
+  const mw=document.getElementById('gloveMissingWrap');
+  if(mw){
+    const miss=S.glove.missing||[];
+    if(miss.length){
+      const rosterKeys={}; roster.forEach(p=>{ rosterKeys[gloveNameKeyC_(p.name)]=true; });
+      mw.style.display='';
+      mw.innerHTML='⚠ <b>サイズが未設定の人</b>（'+miss.length+'名）： '+
+        miss.map(nm=>rosterKeys[gloveNameKeyC_(nm)]
+          ? `<span class="muted" style="margin:2px;display:inline-block">${esc(nm)}（下の表でサイズ選択）</span>`
+          : `<button class="btn sec small" style="margin:2px" onclick="gloveQuickAdd('${esc(nm).replace(/'/g,"&#39;")}')">＋ ${esc(nm)}</button>`
+        ).join(' ')+
+        '<br><span class="muted" style="font-size:11px">まだリストに無い名前はクリックで追加、既にリストにある人は下の表でサイズを選んでください。</span>';
+    }else{ mw.style.display='none'; mw.innerHTML=''; }
+  }
 }
 function renderGloves(){
+  renderGloveRoster();
   const per=Number(S.glove.perPerson||8)||8;
   const pi=document.getElementById('glovePer'); if(pi)pi.value=per;
   const oi=document.getElementById('gloveOn'); if(oi)oi.checked=!!S.glove.on;
@@ -1120,9 +1238,9 @@ function renderGloves(){
     if(!g){ dg.style.display='none'; dg.innerHTML=''; }
     else if(g.days>0){
       dg.style.display=''; dg.style.borderColor=''; dg.style.color='';
-      const from=(g.sizeFrom||[]).map(x=>esc(x.sheet)+'（'+colLetter(x.sizeCol)+'列・'+x.count+'人）').join('・');
-      dg.innerHTML='✅ <b>取得できました</b>：'+g.days+'日分'+
-        (from?'　／　サイズの出どころ： <b>'+from+'</b>':'　／　<span style="color:var(--danger)">サイズがどのシートにも見つかりません</span>')+
+      const missN=(S.glove.missing||[]).length;
+      dg.innerHTML='✅ <b>シフトから取得できました</b>：'+g.days+'日分'+
+        (missN?('　／　<span style="color:var(--danger)">人のリストに無い人 '+missN+'名</span>'):'　／　全員リストにあります')+
         ((g.notes&&g.notes.length)?('<br><span class="muted">'+esc(g.notes.join(' ／ '))+'</span>'):'');
     }else{
       dg.style.display=''; dg.style.borderColor='var(--danger)'; dg.style.color='var(--danger)';
@@ -1154,7 +1272,7 @@ function renderGloves(){
           const det=Object.keys(o).filter(k=>k!=='__noSize').map(k=>k+' '+o[k]).join('・');
           return d.slice(5)+' <b>'+tot+'人</b>('+(det||'サイズ未記入')+')';
         }).join('　／　'):'—')+
-        ((S.glove.missing||[]).length?('<br><span style="color:var(--danger)">⚠ サイズ未記入： '+esc(S.glove.missing.join('・'))+' → シフト表のサイズ列に S/M/L を入れてください</span>'):'');
+        ((S.glove.missing||[]).length?('<br><span style="color:var(--danger)">⚠ 人のリストに無い： '+esc(S.glove.missing.join('・'))+' → 上の「人のリスト」に追加してください</span>'):'');
     }
   }
 }
@@ -1308,7 +1426,7 @@ function createMonthlyBackup(month,who,date){
 function stocktakeTableForMonth(month){
   const byMat={}; (S.stocktakes||[]).forEach(s=>{ if(s.month===month) byMat[s.materialId]=s; });
   return (S.materials||[]).filter(m=>byMat[m.id]!==undefined).map(m=>({
-    name:m.name||m.id, unit:m.unit||'', actual:byMat[m.id].actual
+    name:m.name||m.id, unit:m.unit||'', actual:byMat[m.id].actual, reason:byMat[m.id].reason||''
   }));
 }
 // スプレッドシートの「資材バックアップ」シートへ追記（上書きされない世代保存）
@@ -1967,10 +2085,11 @@ function switchView(v){
   document.querySelectorAll('.view').forEach(s=>s.classList.remove('active'));
   document.getElementById('view-'+v).classList.add('active');
   if(v==='bom')renderBom();if(v==='stock')renderStock();if(v==='backup')renderBackups();if(v==='switch')renderSwitch();
+  if(v==='glove')renderGloves();
   if(v==='orders'){ renderOrders(); cloudCheckNow(); }   // 開くたびに最新の履歴を取り込む（全PC共有）
 }
 document.getElementById('nav').addEventListener('click',e=>{const b=e.target.closest('button');if(b)switchView(b.dataset.v);});
-function recalcAll(){renderDash();renderUsage();}
+function recalcAll(){renderDash();renderUsage();renderGloves();}
 function initUI(){
   document.getElementById('gasUrl').value=S.settings.gasUrl||'';
   renderGasUrlNote();
@@ -1984,7 +2103,7 @@ function initUI(){
   {const by=document.getElementById('st_by'); if(by&&!by.value) by.value=S.settings.lastStockBy||'';}
   if(S.live&&S.live.isLive){document.getElementById('srcbadge').className='badge live';document.getElementById('srcbadge').textContent='🟢 発注書ライブ';
     document.getElementById('asof').textContent='取得 '+(S.live.asOf||'');}
-  refreshMatSelects();renderDash();renderUsage();renderOrders();renderMat();renderBom();renderStock();renderBackups();renderSwitch();
+  refreshMatSelects();renderDash();renderUsage();renderGloves();renderOrders();renderMat();renderBom();renderStock();renderBackups();renderSwitch();
   if(location.hash==='#stock')switchView('stock');
   if(location.hash==='#bom')switchView('bom');
 }
