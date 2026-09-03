@@ -1510,6 +1510,10 @@
     nzRender();
     if(typeof updateJissekiFromOps==='function') updateJissekiFromOps();
   }
+  // 2026-09-03：曽我さん依頼で「Mup」「SとC」は本日荷造りの一覧には出さない（新芽だけ表示）。
+  //   ★データ自体は消さない＝🔍進捗差分タブ（computeClientDiff_）は引き続きNZ_ORDERS全体を見るので、
+  //     ここで非表示にしても「個人＋サンプル（Mup）」の比較には影響しない。あくまで本日荷造りの表示だけの話。
+  var NZ_HIDE_FROM_BOARD = ['Mup', 'SとC'];
   function nzRender(){
     const wrap = document.getElementById('nz-rows');
     // ② 入力中（フォーカス中）の欄は、まだ change/自動保存が済んでいない可能性があるので、
@@ -1528,7 +1532,7 @@
     let gTotal=0, gDone=0, gPending=0;
 
     NZ_DATES.forEach(d => {
-      const orders = NZ_ORDERS.map((o,gi)=>({o,gi})).filter(x => x.o.date === d.key);
+      const orders = NZ_ORDERS.map((o,gi)=>({o,gi})).filter(x => x.o.date === d.key && NZ_HIDE_FROM_BOARD.indexOf(x.o.cust) < 0);
       let dTotal=0;
       orders.forEach(x => dTotal += (x.o.kg||0));
       gTotal += dTotal;
@@ -1705,6 +1709,15 @@
   // 🔍 進捗差分（取引先ごと）：発注書「進捗」シート5行目「荷造数」（取引先で合算・c/s単位）と、
   //   黒板の「本日作った分」（区分・入数違いも取引先で合算・c/s単位）を突き合わせる。
   //   ※上のSKU単位(kg)比較とは別の観点（元データも「進捗」シート基準）。GASの orderProgressByClient を使う。
+  // ② 進捗差分「真空」＝オーケー・ｵｰｹｰ関西・関西PC・丸進・その他の5社のうち区分が「真空」のものの合計
+  //   （曽我さん指定）。発注書「進捗」シート側もこの5社をまとめて1本の「真空」列で管理しているため、
+  //   黒板側もこの5社×真空の分だけは個別の取引先名ではなく「真空」1本に集約して比較する
+  //   （それ以外の区分＝例えばオーケーの洗い等は今まで通りそれぞれの取引先名のまま）。
+  var PROGRESS_VAC_CLIENTS = ['オーケー','ｵｰｹｰ関西','関西PC','丸進','その他'].map(nzNorm_);
+  function nzProgressVacKey_(o){
+    if(nzNorm_(o.bunrui) !== nzNorm_('真空')) return null;
+    return (PROGRESS_VAC_CLIENTS.indexOf(nzNorm_(o.cust)) >= 0) ? '真空' : null;
+  }
   function computeClientDiff_(){
     // 2026-09-03：以前は「本日ぶんの発注」だけを見ていたため、翌日以降の発注に対して本日作りだめした分が
     //   比較に入っていなかった（曽我さん指摘）。→ 日付を絞らず全ての発注について「本日作った分
@@ -1714,7 +1727,8 @@
     NZ_ORDERS.forEach(function(o){
       var made = nzMadeToday(nzRowKey(o));
       if(!made) return;
-      madeByClient[o.cust] = (madeByClient[o.cust]||0) + made;
+      var key = nzProgressVacKey_(o) || o.cust;
+      madeByClient[key] = (madeByClient[key]||0) + made;
     });
     // ② 個人注文／その他サンプルの「Mup」は、発注書「進捗」シートの「個人＋サンプル」行と対応する
     //   （キー名が違うだけで同じものを指す）ので、比較用に1本の行名にそろえる。
