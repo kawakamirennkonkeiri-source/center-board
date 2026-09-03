@@ -1706,18 +1706,23 @@
   //   黒板の「本日作った分」（区分・入数違いも取引先で合算・c/s単位）を突き合わせる。
   //   ※上のSKU単位(kg)比較とは別の観点（元データも「進捗」シート基準）。GASの orderProgressByClient を使う。
   function computeClientDiff_(){
-    var todayKey = null;
-    NZ_DATES.forEach(function(d){ if(d.note==='本日') todayKey = d.key; });
-    if(!todayKey && NZ_DATES.length) todayKey = NZ_DATES[0].key;
+    // 2026-09-03：以前は「本日ぶんの発注」だけを見ていたため、翌日以降の発注に対して本日作りだめした分が
+    //   比較に入っていなかった（曽我さん指摘）。→ 日付を絞らず全ての発注について「本日作った分
+    //   （nzMadeToday＝生産日=今日）」を集計する（nzRowKeyは発注ごとの本来の納品日を含むキーなので、
+    //   どの納品日向けの作りだめでも正しく本日分だけが拾える）。
     var madeByClient = {};
-    if(todayKey){
-      NZ_ORDERS.filter(function(o){ return o.date===todayKey; }).forEach(function(o){
-        var made = nzMadeToday(nzRowKey(o));
-        if(!made) return;
-        madeByClient[o.cust] = (madeByClient[o.cust]||0) + made;
-      });
-    }
-    var progress = ORDER_PROGRESS_BY_CLIENT || {};
+    NZ_ORDERS.forEach(function(o){
+      var made = nzMadeToday(nzRowKey(o));
+      if(!made) return;
+      madeByClient[o.cust] = (madeByClient[o.cust]||0) + made;
+    });
+    // ② 個人注文／その他サンプルの「Mup」は、発注書「進捗」シートの「個人＋サンプル」行と対応する
+    //   （キー名が違うだけで同じものを指す）ので、比較用に1本の行名にそろえる。
+    if(madeByClient['Mup']){ madeByClient['個人＋サンプル（Mup）'] = madeByClient['Mup']; delete madeByClient['Mup']; }
+    var progress = {};
+    Object.keys(ORDER_PROGRESS_BY_CLIENT || {}).forEach(function(k){
+      progress[(k === '個人＋サンプル') ? '個人＋サンプル（Mup）' : k] = ORDER_PROGRESS_BY_CLIENT[k] || 0;
+    });
     var names = {};
     Object.keys(madeByClient).forEach(function(k){ names[k]=1; });
     Object.keys(progress).forEach(function(k){ names[k]=1; });
