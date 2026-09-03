@@ -967,22 +967,20 @@
       #view-skudiff .sd-head .r{ text-align:right; }
     </style>
     <div class="nz-toolbar">
-      <div style="font-size:17px;font-weight:800;color:var(--text-primary);">🔍 進捗差分（本日ぶん・取引先×区分ごと）</div>
+      <div style="font-size:17px;font-weight:800;color:var(--text-primary);">🔍 進捗差分（取引先ごと・c/s単位）</div>
       <button class="nz-cbtn" onclick="renderSkuDiff()">🔄 今すぐ更新</button>
     </div>
     <div class="nz-hint" style="margin:0 0 10px;">
-      「本日実績」タイルの<b>合計の差</b>が、どの取引先・区分で発生しているかを一覧にします。<br>
-      <b>黒板実績kg</b>＝この画面の「本日荷造り」で入力した<b>本日作った分</b>（キロ換算）／<b>発注書kg</b>＝発注書に書かれている本日分の数量（キロ換算）。<br>
-      ※これは<b>本日ぶんの発注1行ごとの単純比較</b>です。「本日実績」タイルの合計差（生産者・CS調整後の数字）とは計算方法が異なるため、金額は一致しません。<b>どのSKUに差が出ているかの手がかり</b>としてお使いください。
+      発注書「進捗」シートの<b>5行目「荷造数」</b>を取引先ごとに合算した値と、電子黒板の<b>本日作った分</b>（区分・入数違いも取引先で合算）を突き合わせます。単位はどちらも<b>c/s（ケース数）</b>です。
     </div>
     <div class="sd-table">
       <div class="sd-head">
-        <div>取引先・区分（入数）</div>
-        <div class="r">黒板実績kg</div>
-        <div class="r">発注書kg</div>
-        <div class="r">差（黒板−発注書）</div>
+        <div>取引先</div>
+        <div class="r">黒板 本日作った(c/s)</div>
+        <div class="r">進捗シート 荷造数(c/s)</div>
+        <div class="r">差（黒板−進捗）</div>
       </div>
-      <div id="skudiff-rows"><!-- 行をJSで生成 --></div>
+      <div id="skudiff-client-rows"><!-- 行をJSで生成 --></div>
     </div>
   </div><!-- /view-skudiff -->
 
@@ -1699,32 +1697,48 @@
     if(typeof fitBoard==='function') fitBoard();   // ⑦ 行数が変わったら1画面に合わせ直す
     if(typeof renderSkuDiff==='function') renderSkuDiff();   // 🔍 進捗差分タブも同時に最新化（開いていなくても軽いので毎回計算）
   }
-  // 🔍 進捗差分：本日ぶんの発注1行ごとに、黒板の「本日作った分」kgと発注書のkgを突き合わせる。
-  //   数量(o.kg)・実績(nzMadeToday×nyusu)とも既存の NZ_ORDERS / NZS.prod から計算するだけなので、
-  //   新たなサーバー通信は不要（「本日実績」タイルの合計比較(checkProgressMatch_)を明細レベルに分解したもの）。
-  function computeSkuDiff_(){
+  // 🔍 進捗差分タブの描画エントリ（既存の呼び出し元＝タブ切替・summary更新・本日荷造り再描画から呼ばれる）。
+  //   中身は「取引先ごと」比較のみ（本日ぶんの発注1行=SKU単位・kg比較版は曽我さんの希望で撤去した）。
+  function renderSkuDiff(){
+    renderClientDiff_();
+  }
+  // 🔍 進捗差分（取引先ごと）：発注書「進捗」シート5行目「荷造数」（取引先で合算・c/s単位）と、
+  //   黒板の「本日作った分」（区分・入数違いも取引先で合算・c/s単位）を突き合わせる。
+  //   ※上のSKU単位(kg)比較とは別の観点（元データも「進捗」シート基準）。GASの orderProgressByClient を使う。
+  function computeClientDiff_(){
     var todayKey = null;
     NZ_DATES.forEach(function(d){ if(d.note==='本日') todayKey = d.key; });
     if(!todayKey && NZ_DATES.length) todayKey = NZ_DATES[0].key;
-    if(!todayKey) return [];
-    return NZ_ORDERS.filter(function(o){ return o.date===todayKey; }).map(function(o){
-      var made = nzMadeToday(nzRowKey(o)) * (Number(o.nyusu)||0);
-      var order = Number(o.kg)||0;
-      return { cust:o.cust, bunrui:o.bunrui||'', nyusu:o.nyusu||0, made:made, order:order, diff:made-order };
+    var madeByClient = {};
+    if(todayKey){
+      NZ_ORDERS.filter(function(o){ return o.date===todayKey; }).forEach(function(o){
+        var made = nzMadeToday(nzRowKey(o));
+        if(!made) return;
+        madeByClient[o.cust] = (madeByClient[o.cust]||0) + made;
+      });
+    }
+    var progress = ORDER_PROGRESS_BY_CLIENT || {};
+    var names = {};
+    Object.keys(madeByClient).forEach(function(k){ names[k]=1; });
+    Object.keys(progress).forEach(function(k){ names[k]=1; });
+    return Object.keys(names).map(function(name){
+      var made = madeByClient[name] || 0;
+      var order = progress[name] || 0;
+      return { cust:name, made:made, order:order, diff:made-order };
     }).sort(function(a,b){ return Math.abs(b.diff)-Math.abs(a.diff); });
   }
-  function renderSkuDiff(){
-    var wrap = document.getElementById('skudiff-rows');
+  function renderClientDiff_(){
+    var wrap = document.getElementById('skudiff-client-rows');
     if(!wrap) return;   // タブ未表示（旧キャッシュ等）でも落ちないように
-    var rows = computeSkuDiff_();
-    if(!rows.length){ wrap.innerHTML = '<div class="news-empty" style="padding:10px 4px;">本日の発注がまだありません</div>'; return; }
+    var rows = computeClientDiff_();
+    if(!rows.length){ wrap.innerHTML = '<div class="news-empty" style="padding:10px 4px;">本日のデータがまだありません</div>'; return; }
     wrap.innerHTML = rows.map(function(r){
-      var ok = Math.abs(r.diff) < 0.1;
-      var diffTxt = (r.diff>0?'+':'') + nzFmtKg(r.diff);
+      var ok = Math.abs(r.diff) < 0.5;
+      var diffTxt = (r.diff>0?'+':'') + r.diff;
       return '<div class="sd-row">'
-        + '<div>' + esc_(r.cust) + (r.bunrui?('　'+esc_(r.bunrui)):'') + '　<span style="color:var(--muted);font-size:12px;">('+r.nyusu+')</span></div>'
-        + '<div class="r">' + nzFmtKg(r.made) + '</div>'
-        + '<div class="r">' + nzFmtKg(r.order) + '</div>'
+        + '<div>' + esc_(r.cust) + '</div>'
+        + '<div class="r">' + r.made + '</div>'
+        + '<div class="r">' + r.order + '</div>'
         + '<div class="r" style="color:' + (ok?'var(--green)':'#d9534f') + ';">' + (ok?'一致':diffTxt) + '</div>'
         + '</div>';
     }).join('');
@@ -3010,7 +3024,8 @@
   }
 
   // ②③ 本日サマリ：本日の荷造り舟数(発注書の「収穫舟数」列・見出しで検出→列がズレても追従)・実績(舟数/kg/歩留まり=力量表「実績」)・終了目標時刻
-  var boardData = { targetFunes:null, jissekiFunes:null, jissekiKg:null, jissekiBudomari:null, orderTotalKg:null, orderKawakamiKg:null, orderBudomari:null, hatsuri:0, attendNow:0, serverTarget:null, targetOverride:null };
+  var boardData = { targetFunes:null, jissekiFunes:null, jissekiKg:null, jissekiBudomari:null, orderTotalKg:null, orderKawakamiKg:null, orderBudomari:null, orderCsRate:null, hatsuri:0, attendNow:0, serverTarget:null, targetOverride:null };
+  var ORDER_PROGRESS_BY_CLIENT = {};   // 🔍 進捗差分（取引先ごと）：発注書「進捗」シート5行目「荷造数」の取引先別合計(c/s)
   function haichiNum_(n, d){ if(n==null || isNaN(n)) return '--'; return Number(n).toLocaleString('ja-JP', {maximumFractionDigits: d||0}); }
   function haichiSetText_(id, v){ var e = document.getElementById(id); if(e) e.textContent = v; }
   function haichiUpdateBoard(s){
@@ -3024,6 +3039,9 @@
     boardData.orderTotalKg    = (typeof s.orderTotalKg === 'number')    ? s.orderTotalKg    : null;
     boardData.orderKawakamiKg = (typeof s.orderKawakamiKg === 'number') ? s.orderKawakamiKg : null;
     boardData.orderBudomari   = (typeof s.orderBudomari === 'number')   ? s.orderBudomari   : null;
+    boardData.orderCsRate     = (typeof s.orderCsRate === 'number')     ? s.orderCsRate     : null;   // ② 発注書「進捗」シートのCS率（参考値）
+    ORDER_PROGRESS_BY_CLIENT  = (s.orderProgressByClient && typeof s.orderProgressByClient === 'object') ? s.orderProgressByClient : {};
+    if(typeof renderSkuDiff === 'function') renderSkuDiff();   // 🔍 進捗差分（取引先ごと）も新しい値で再計算
     // 上段（予測・予定）：本日の荷造り舟数（＝発注書 or 数量変更 ＋ 生産者の収穫舟数）
     haichiSetText_('t-target-sub', ovr!=null ? '当日変更（発注書の予定を上書き）' : '発注書より（本日の総舟数）');
     haichiRefreshTargets_();   // t-target-funes と 荷造りkg（予定）を生産者舟数込みで再計算
@@ -3124,7 +3142,12 @@
     // ① 加工率は生産者ぶんも含めた全体で計算する＝差し引いた生産者ぶんを tCs/tKg に足し戻す
     var kak = kakouRitsu_(tCs + p.seisanCs, tKg + (p.seisan - p.seisanCs));   // ① 加工率＝C・S㎏(生産者含む) ÷（荷造り㎏(生産者含む)＋C・S㎏(生産者含む)）
     haichiSetText_('j-kakou', kak != null ? haichiNum_(kak, 1) : '--');
-    haichiSetText_('j-kakou-note', 'C・S㎏ ÷（荷造り㎏＋C・S㎏）　※生産者ぶんを含む');
+    // ② 参考：発注書「進捗」シートのCS率も併記する（read-onlyで発注書から参照するだけ・発注書は編集しない）。
+    //   ★対象範囲(電子黒板＝全取引先のC/S注文をkg集計／発注書CS率＝「カワカミ荷造数」欄1本だけの手入力値)も
+    //     算出方法も違うため、通常は数値が一致しない。一致しないこと自体は異常ではない旨をここで明記する。
+    var refCs = boardData.orderCsRate;
+    var refTxt = (typeof refCs === 'number') ? '　｜　参考：発注書CS率 ' + haichiNum_(refCs * 100, 1) + '%（対象・計算方法が違うため一致しません）' : '';
+    haichiSetText_('j-kakou-note', 'C・S㎏ ÷（荷造り㎏＋C・S㎏）　※生産者ぶんを含む' + refTxt);
     checkProgressMatch_();
   }
   // ⑥ 電子黒板の「荷造りkg（実績）」「歩留まり」と、発注書「進捗」シートの「カワカミ荷造数」「歩留まり」が
