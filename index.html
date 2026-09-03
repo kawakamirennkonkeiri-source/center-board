@@ -1510,10 +1510,15 @@
     nzRender();
     if(typeof updateJissekiFromOps==='function') updateJissekiFromOps();
   }
-  // 2026-09-03：曽我さん依頼で「Mup」「SとC」は本日荷造りの一覧には出さない（新芽だけ表示）。
+  // 2026-09-03：曽我さん依頼で「SとC」は本日荷造りの一覧には出さない（Mup・新芽は表示する）。
   //   ★データ自体は消さない＝🔍進捗差分タブ（computeClientDiff_）は引き続きNZ_ORDERS全体を見るので、
   //     ここで非表示にしても「個人＋サンプル（Mup）」の比較には影響しない。あくまで本日荷造りの表示だけの話。
-  var NZ_HIDE_FROM_BOARD = ['Mup', 'SとC'];
+  //   （★当初はMupも非表示にしていたが、曽我さんから「個人+サンプル（Mup）は表示させてほしい」と
+  //     追加依頼があり再度表示に戻した）
+  var NZ_HIDE_FROM_BOARD = ['SとC'];
+  // 本日荷造りの一覧に出す表示名（内部のcust値はそのまま・見た目だけ差し替える）。
+  //   Mup＝進捗差分タブでの表示名「個人＋サンプル（Mup）」と揃えて分かりやすくする。
+  function nzCustLabel_(cust){ return cust === 'Mup' ? '個人＋サンプル（Mup）' : cust; }
   function nzRender(){
     const wrap = document.getElementById('nz-rows');
     // ② 入力中（フォーカス中）の欄は、まだ change/自動保存が済んでいない可能性があるので、
@@ -1582,7 +1587,7 @@
         row.innerHTML =
           `<div class="nz-r1">`+
             `<div class="idx">${idx+1}</div>`+
-            `<div class="cust">${o.cust}${o.bunrui?`<span class="bunrui ${nzBunruiClass(o.bunrui)}">${o.bunrui}</span>`:''}${isKg?`<span class="bunrui b-kg">㎏</span>`:''}${o.isNew?`<span class="new-flag">NEW</span>`:''}</div>`+
+            `<div class="cust">${nzCustLabel_(o.cust)}${o.bunrui?`<span class="bunrui ${nzBunruiClass(o.bunrui)}">${o.bunrui}</span>`:''}${isKg?`<span class="bunrui b-kg">㎏</span>`:''}${o.isNew?`<span class="new-flag">NEW</span>`:''}</div>`+
             `<div class="nyusu">${isKg?`<small>㎏で入力</small>`:(o.nyusu?`入数 ${o.nyusu}<small>㎏</small>`:`<small>入数 —</small>`)}</div>`+
             `<button class="nz-status" data-st="${o.st}"><span class="mk">${s.mk}</span>${s.label}</button>`+
           `</div>`+
