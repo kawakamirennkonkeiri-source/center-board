@@ -863,7 +863,7 @@
         <div class="stat-row" style="margin-top:8px">
           <div class="stat-tile"><div class="lbl">荷造りCSキロ</div><div class="val"><span id="j-cs-kg">--</span>kg</div>
             <div class="ampm-line"><span class="am">午前 <input class="ampm-inp" id="j-cs-am" type="number" min="0" step="0.1" inputmode="decimal" placeholder="–"></span><span class="pm">午後 <input class="ampm-inp" id="j-cs-pm" type="number" min="0" step="0.1" inputmode="decimal" placeholder="–"></span></div>
-            <div class="delta">区分 C/S の作った分</div></div>
+            <div class="delta" id="j-cs-note">区分 C/S の作った分</div></div>
           <div class="stat-tile"><div class="lbl">加工率</div><div class="val"><span id="j-kakou">--</span><span style="font-size:15px;font-weight:600;">%</span></div>
             <div class="ampm-line"><span class="am">午前 <b id="j-kakou-am">–</b></span><span class="pm">午後 <b id="j-kakou-pm">–</b></span></div>
             <div class="delta" id="j-kakou-note">C・S㎏ ÷（荷造り㎏＋C・S㎏）　※生産者ぶんを含む</div></div>
@@ -3048,7 +3048,7 @@
   }
 
   // ②③ 本日サマリ：本日の荷造り舟数(発注書の「収穫舟数」列・見出しで検出→列がズレても追従)・実績(舟数/kg/歩留まり=力量表「実績」)・終了目標時刻
-  var boardData = { targetFunes:null, jissekiFunes:null, jissekiKg:null, jissekiBudomari:null, orderTotalKg:null, orderKawakamiKg:null, orderBudomari:null, orderCsRate:null, hatsuri:0, attendNow:0, serverTarget:null, targetOverride:null };
+  var boardData = { targetFunes:null, jissekiFunes:null, jissekiKg:null, jissekiBudomari:null, orderTotalKg:null, orderKawakamiKg:null, orderBudomari:null, orderCsRate:null, orderKawakamiCsKg:null, hatsuri:0, attendNow:0, serverTarget:null, targetOverride:null };
   var ORDER_PROGRESS_BY_CLIENT = {};   // 🔍 進捗差分（取引先ごと）：発注書「進捗」シート5行目「荷造数」の取引先別合計(c/s)
   function haichiNum_(n, d){ if(n==null || isNaN(n)) return '--'; return Number(n).toLocaleString('ja-JP', {maximumFractionDigits: d||0}); }
   function haichiSetText_(id, v){ var e = document.getElementById(id); if(e) e.textContent = v; }
@@ -3064,6 +3064,7 @@
     boardData.orderKawakamiKg = (typeof s.orderKawakamiKg === 'number') ? s.orderKawakamiKg : null;
     boardData.orderBudomari   = (typeof s.orderBudomari === 'number')   ? s.orderBudomari   : null;
     boardData.orderCsRate     = (typeof s.orderCsRate === 'number')     ? s.orderCsRate     : null;   // ② 発注書「進捗」シートのCS率（参考値）
+    boardData.orderKawakamiCsKg = (typeof s.orderKawakamiCsKg === 'number') ? s.orderKawakamiCsKg : null;   // 2026-09-03：荷造りCS㎏の自動反映元（進捗シート「カワカミ荷造数」欄）
     ORDER_PROGRESS_BY_CLIENT  = (s.orderProgressByClient && typeof s.orderProgressByClient === 'object') ? s.orderProgressByClient : {};
     if(typeof renderSkuDiff === 'function') renderSkuDiff();   // 🔍 進捗差分（取引先ごと）も新しい値で再計算
     // 上段（予測・予定）：本日の荷造り舟数（＝発注書 or 数量変更 ＋ 生産者の収穫舟数）
@@ -3146,9 +3147,17 @@
   function updateJissekiFromOps(){
     var funes = jissekiFunesNow();          // 荷造り舟数（実績）＝圃場から持ってきた舟数
     var p     = opsTodayMadeKgParts();      // { all:全荷造りkg, cs:CSキロ, kg:荷造りkg（CS除く） }
+    // 2026-09-03：荷造りCS㎏は発注書「進捗」シートの「カワカミ荷造数」欄（C/S×重さの内訳を掛け算した合計㎏）
+    //   から自動反映する（曽我さん依頼。以前は本日荷造りのカード入力を積み上げた値=p.csを使っていた）。
+    //   GAS側で取得できなかった時（列構成が変わった等でnull）は従来のp.cs（板の積み上げ集計）にフォールバック。
+    var hasAutoCs = (typeof boardData.orderKawakamiCsKg === 'number');
+    var csSrc = hasAutoCs ? boardData.orderKawakamiCsKg : p.cs;
+    haichiSetText_('j-cs-note', hasAutoCs
+      ? '発注書「進捗」カワカミ荷造数より自動反映'
+      : '区分 C/S の作った分（発注書から取得できないため板の集計値）');
     // ⑤② 先に午前・午後（自動 or 手入力）を確定させる。手で入れた数字があれば
     //     「午前＋午後」を現時点の実績（大きい数字）にも反映する＝入れた加工ぶんが加工率に出る。
-    var ap    = updateAmPm(funes, p.kg, p.cs);
+    var ap    = updateAmPm(funes, p.kg, csSrc);
     var tFune = ap.funes.total, tKg = ap.kg.total, tCs = ap.cs.total;
     boardData.jissekiFunes = tFune;
     boardData.jissekiKg = tKg;
