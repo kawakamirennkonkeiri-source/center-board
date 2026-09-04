@@ -1732,7 +1732,7 @@
     NZ_ORDERS.forEach(function(o){
       var made = nzMadeToday(nzRowKey(o));
       if(!made) return;
-      if(o.cust === 'SとC') return;   // 個人販売のS/Cは進捗シート側に対応行が無く比較できない（荷造りkgはMup同士で比較するため不要。曽我さん指摘）
+      if(o.cust === 'SとC' || o.cust === '新芽') return;   // 個人販売のS/C・新芽は進捗シート側に対応行が無く比較できない（荷造りkgはMup同士で比較するため不要。曽我さん指摘）
       var key = nzProgressVacKey_(o) || o.cust;
       madeByClient[key] = (madeByClient[key]||0) + made;
     });
@@ -1741,7 +1741,7 @@
     if(madeByClient['Mup']){ madeByClient['個人＋サンプル（Mup）'] = madeByClient['Mup']; delete madeByClient['Mup']; }
     var progress = {};
     Object.keys(ORDER_PROGRESS_BY_CLIENT || {}).forEach(function(k){
-      if(k === 'SとC') return;   // 同上：S/Cは比較対象外
+      if(k === 'SとC' || k === '新芽') return;   // 同上：S/C・新芽は比較対象外
       progress[(k === '個人＋サンプル') ? '個人＋サンプル（Mup）' : k] = ORDER_PROGRESS_BY_CLIENT[k] || 0;
     });
     var names = {};
