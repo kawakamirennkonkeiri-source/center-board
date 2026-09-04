@@ -3120,6 +3120,7 @@
     var all = 0, cs = 0;
     try{
       NZ_ORDERS.forEach(function(o){
+        if(o.cust === 'SとC' || o.cust === '新芽') return;   // 個人販売のS/C・新芽は発注書「進捗」シート側の集計（カワカミ荷造数・進捗差分）に対応が無く、荷造りkg実績に混ぜると一致確認がズレるため除外（Mupは「個人＋サンプル」として対応があるので含める）
         var v = nzMadeToday(nzRowKey(o)) * (Number(o.nyusu)||0);
         if(!v) return;
         all += v;
