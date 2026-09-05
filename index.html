@@ -1723,6 +1723,10 @@
     if(nzNorm_(o.bunrui) !== nzNorm_('真空')) return null;
     return (PROGRESS_VAC_CLIENTS.indexOf(nzNorm_(o.cust)) >= 0) ? '真空' : null;
   }
+  // ③ 進捗差分タブ専用の取引先名エイリアス：発注書メインシート側の表記（黒板の表示名）→進捗シート側の表記。
+  //   同じ取引先なのに両シートで呼び方が違うため、比較の時だけ名前をそろえる（曽我さん確認済み）。
+  //   黒板本体（本日荷造り一覧）の表示は「関西トライアル」のまま変えない＝発注書メインシート側は無変更。
+  var NZ_PROGRESS_CLIENT_ALIAS_ = { '関西トライアル': '中井青果' };
   function computeClientDiff_(){
     // 2026-09-03：以前は「本日ぶんの発注」だけを見ていたため、翌日以降の発注に対して本日作りだめした分が
     //   比較に入っていなかった（曽我さん指摘）。→ 日付を絞らず全ての発注について「本日作った分
@@ -1733,7 +1737,7 @@
       var made = nzMadeToday(nzRowKey(o));
       if(!made) return;
       if(o.cust === 'SとC' || o.cust === '新芽') return;   // 個人販売のS/C・新芽は進捗シート側に対応行が無く比較できない（荷造りkgはMup同士で比較するため不要。曽我さん指摘）
-      var key = nzProgressVacKey_(o) || o.cust;
+      var key = nzProgressVacKey_(o) || NZ_PROGRESS_CLIENT_ALIAS_[o.cust] || o.cust;
       madeByClient[key] = (madeByClient[key]||0) + made;
     });
     // ② 個人注文／その他サンプルの「Mup」は、発注書「進捗」シートの「個人＋サンプル」行と対応する
