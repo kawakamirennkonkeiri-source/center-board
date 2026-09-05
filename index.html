@@ -3179,15 +3179,18 @@
     var bud = tFune > 0 ? (tKg / tFune) : null;           // 歩留まり＝荷造りkg（CS除く） ÷ 舟数
     boardData.jissekiBudomari = bud;
     haichiSetText_('j-budomari', bud != null ? haichiNum_(bud, 1) : '--');
-    // ① 加工率は生産者ぶんも含めた全体で計算する＝差し引いた生産者ぶんを tCs/tKg に足し戻す
-    var kak = kakouRitsu_(tCs + p.seisanCs, tKg + (p.seisan - p.seisanCs));   // ① 加工率＝C・S㎏(生産者含む) ÷（荷造り㎏(生産者含む)＋C・S㎏(生産者含む)）
-    haichiSetText_('j-kakou', kak != null ? haichiNum_(kak, 1) : '--');
-    // ② 参考：発注書「進捗」シートのCS率も併記する（read-onlyで発注書から参照するだけ・発注書は編集しない）。
-    //   ★対象範囲(電子黒板＝全取引先のC/S注文をkg集計／発注書CS率＝「カワカミ荷造数」欄1本だけの手入力値)も
-    //     算出方法も違うため、通常は数値が一致しない。一致しないこと自体は異常ではない旨をここで明記する。
+    // ① 加工率＝発注書「進捗」シートのCS率をそのまま表示する（2026-09-05・曽我さん依頼で板集計から差し替え）。
+    //   取得できない時（列構成が変わった等でnull）だけ、従来の板集計値（C・S㎏÷（荷造り㎏＋C・S㎏）。
+    //   生産者ぶんも含めた全体で計算＝差し引いた生産者ぶんを tCs/tKg に足し戻す）にフォールバックする。
     var refCs = boardData.orderCsRate;
-    var refTxt = (typeof refCs === 'number') ? '　｜　参考：発注書CS率 ' + haichiNum_(refCs * 100, 1) + '%（対象・計算方法が違うため一致しません）' : '';
-    haichiSetText_('j-kakou-note', 'C・S㎏ ÷（荷造り㎏＋C・S㎏）　※生産者ぶんを含む' + refTxt);
+    var hasOrderCs = (typeof refCs === 'number');
+    var kakCalc = kakouRitsu_(tCs + p.seisanCs, tKg + (p.seisan - p.seisanCs));
+    var kak = hasOrderCs ? (refCs * 100) : kakCalc;
+    haichiSetText_('j-kakou', kak != null ? haichiNum_(kak, 1) : '--');
+    // ※午前・午後の内訳は発注書CS率には無い（1日1値）ため、こちらは引き続き板集計（C・S㎏÷（荷造り㎏＋C・S㎏））で算出する。
+    haichiSetText_('j-kakou-note', hasOrderCs
+      ? '発注書「進捗」シートのCS率をそのまま表示　｜　午前・午後は板集計の参考値'
+      : 'C・S㎏ ÷（荷造り㎏＋C・S㎏）　※生産者ぶんを含む（発注書CS率が取得できないためこちらを表示）');
     checkProgressMatch_();
   }
   // ⑥ 電子黒板の「荷造りkg（実績）」「歩留まり」と、発注書「進捗」シートの「カワカミ荷造数」「歩留まり」が
