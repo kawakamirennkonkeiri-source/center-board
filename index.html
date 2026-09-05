@@ -865,7 +865,6 @@
             <div class="ampm-line"><span class="am">午前 <input class="ampm-inp" id="j-cs-am" type="number" min="0" step="0.1" inputmode="decimal" placeholder="–"></span><span class="pm">午後 <input class="ampm-inp" id="j-cs-pm" type="number" min="0" step="0.1" inputmode="decimal" placeholder="–"></span></div>
             <div class="delta" id="j-cs-note">区分 C/S の作った分</div></div>
           <div class="stat-tile"><div class="lbl">加工率</div><div class="val"><span id="j-kakou">--</span><span style="font-size:15px;font-weight:600;">%</span></div>
-            <div class="ampm-line"><span class="am">午前 <b id="j-kakou-am">–</b></span><span class="pm">午後 <b id="j-kakou-pm">–</b></span></div>
             <div class="delta" id="j-kakou-note">C・S㎏ ÷（荷造り㎏＋C・S㎏）　※生産者ぶんを含む</div></div>
           <div class="stat-tile match-tile"><div class="lbl">発注書「進捗」との一致確認</div>
             <div class="match-msg" id="j-match-msg">確認中…</div></div>
@@ -3187,9 +3186,9 @@
     var kakCalc = kakouRitsu_(tCs + p.seisanCs, tKg + (p.seisan - p.seisanCs));
     var kak = hasOrderCs ? (refCs * 100) : kakCalc;
     haichiSetText_('j-kakou', kak != null ? haichiNum_(kak, 1) : '--');
-    // ※午前・午後の内訳は発注書CS率には無い（1日1値）ため、こちらは引き続き板集計（C・S㎏÷（荷造り㎏＋C・S㎏））で算出する。
+    // 2026-09-05：午前・午後の内訳は発注書CS率には無い（1日1値）ため削除済み（上のampm-line自体を撤去）。
     haichiSetText_('j-kakou-note', hasOrderCs
-      ? '発注書「進捗」シートのCS率をそのまま表示　｜　午前・午後は板集計の参考値'
+      ? '発注書「進捗」シートのCS率をそのまま表示'
       : 'C・S㎏ ÷（荷造り㎏＋C・S㎏）　※生産者ぶんを含む（発注書CS率が取得できないためこちらを表示）');
     checkProgressMatch_();
   }
@@ -3322,8 +3321,7 @@
       var F=eff.funes[s], K=eff.kg[s], C=eff.cs[s];
       var bud = (F!=null && K!=null && F>0) ? (K/F) : null;
       haichiSetText_('j-bud-'+s, bud!=null ? amFmt(bud) : '–');
-      var kak = (K!=null && C!=null) ? kakouRitsu_(C, K) : null;   // ① 同じ式で午前・午後も出す
-      haichiSetText_('j-kakou-'+s, kak!=null ? amFmt(kak) : '–');
+      // 2026-09-05：加工率の午前・午後は削除（合計欄が発注書CS率＝1日1値になり、午前+午後が合計と合わなくなるため）
     });
     // --- 説明文＆「自動に戻す」ボタンの出し分け ---
     var note = document.getElementById('ampm-note');
