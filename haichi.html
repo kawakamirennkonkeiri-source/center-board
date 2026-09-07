@@ -395,6 +395,10 @@ function worker(id){ return workers.find(w=>w.id===id); }
 function capacityOf(z){ if(offZones && offZones[z.id]) return 0; return (typeof z._capacity === 'number') ? z._capacity : z.slots.length; }
 // トグル（真空/ピロー なし）に左右されない“設定上の枠数”。ゾーン設定の表示・保存はこちらを使う（capacityOfだとオフ時に0が保存され、あり時も0枠に固定されてしまう）。
 function rawCapacityOf(z){ return (typeof z._capacity === 'number') ? z._capacity : z.slots.length; }
+// 2026-09-07 曽我さん依頼：人が多い日だけ使う「増員枠」。自動配置はこの分だけ後回しにする（＝通常枠を埋めきってからでないと使わない）。
+// ここに載っているゾーンだけ、末尾の枠数ぶんを増員枠として扱う（他ゾーンは0＝従来どおり全部が通常枠）。
+const PLUS_CAPACITY = { nagashi:1, conveyor:2, shiwake:1, shiwake_h:1, hakoire:1, pallet:1 };
+function baseCapacityOf(z){ return Math.max(0, capacityOf(z) - (PLUS_CAPACITY[z.id] || 0)); }
 // ローカル保存（単体HTMLで開いたとき用）。電子黒板に埋め込むとsrcdocはlocalStorage不可で例外→自動的にno-op＝従来どおり親（電子黒板）経由の保存にフォールバック。
 var TOOL_LS_OK = false; try{ if(window.localStorage){ window.localStorage.getItem('_haichi_probe'); TOOL_LS_OK = true; } }catch(_e){ TOOL_LS_OK = false; }
 function lsGet_(k){ if(!TOOL_LS_OK) return null; try{ var v = window.localStorage.getItem(k); return v ? JSON.parse(v) : null; }catch(_e){ return null; } }
@@ -816,12 +820,23 @@ function autoAssign(mode){
   ZONES.forEach(z=>{ assignment[z.id] = assignment[z.id].filter(id=> pinned[id]===z.id); });
 
   const zonesSorted = [...ZONES].sort((a,b)=>a.priority-b.priority);
+
+  // ① 通常枠（＝増員枠を除いた本来の枠数）をゾーン優先度・優先番号順に埋める
   zonesSorted.forEach(z=>{
-    let room = capacityOf(z) - assignment[z.id].length;
+    let room = baseCapacityOf(z) - assignment[z.id].length;
     if(room<=0) return;
     // この場所に番号が入っている人（出勤・未配置）だけが候補。×・空欄は対象外。
     let cands = workers.filter(w=> w.attend && !isAssigned(w.id) && prioNumOf(w.id, z.skill)!==null);
     cands = sortByPrioThenRandom_(cands, z.skill, mode);   // 番号昇順・同番号ランダム
+    cands.slice(0, room).forEach(w=>{ assignment[z.id].push(w.id); });
+  });
+
+  // ② 通常枠を全部埋めてもまだ出勤者が余っていたら、増員枠（PLUS_CAPACITY）へ。人が普段どおりの日は①だけで済み、増員枠は空きのまま。
+  zonesSorted.forEach(z=>{
+    let room = capacityOf(z) - assignment[z.id].length;
+    if(room<=0) return;
+    let cands = workers.filter(w=> w.attend && !isAssigned(w.id) && prioNumOf(w.id, z.skill)!==null);
+    cands = sortByPrioThenRandom_(cands, z.skill, mode);
     cands.slice(0, room).forEach(w=>{ assignment[z.id].push(w.id); });
   });
 
