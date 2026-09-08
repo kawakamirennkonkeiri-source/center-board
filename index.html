@@ -251,10 +251,13 @@
   .todo-tabs{ display:flex; gap:6px; margin-bottom:8px;}
   .todo-tabs span{ font-size:11px; padding:3px 10px; border-radius:12px; background:var(--page); color:var(--text-secondary); font-weight:700;}
   .todo-tabs span.active{ background:var(--blue); color:#fff;}
-  .todo-item{ display:flex; align-items:center; gap:8px; font-size:13px; padding:4px 0;}
+  .todo-item{ display:flex; align-items:center; gap:8px; font-size:13px; padding:4px 0; cursor:pointer; user-select:none;}
   .todo-item .box{ width:14px;height:14px;border:2px solid var(--muted); border-radius:3px; flex:none;}
   .todo-item.done .box{ background:var(--green); border-color:var(--green);}
-  .todo-item.done span{ text-decoration:line-through; color:var(--muted);}
+  .todo-item.done span.todo-task{ text-decoration:line-through; color:var(--muted);}
+  .todo-item span.todo-task{ flex:1 1 auto;}
+  .todo-item span.todo-freq{ font-size:10px; color:var(--text-secondary); background:var(--page); border-radius:8px; padding:1px 7px; flex:none;}
+  .todo-empty{ font-size:12px; color:var(--muted);}
 
   /* footer strip: 追い送り / 残渣捨て / 個人面談 / 測定進捗 */
   .foot-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; padding:0 20px 18px;}
@@ -900,12 +903,8 @@
       </div>
       <div class="card">
         <h3>TODO</h3>
-        <div class="todo-tabs"><span class="active">本日</span><span>季節別（夏）</span></div>
-        <div class="todo-item done"><div class="box"></div><span>会社休み反映の確認</span></div>
-        <div class="todo-item done"><div class="box"></div><span>朝礼・出勤確認</span></div>
-        <div class="todo-item"><div class="box"></div><span>コンテナ在庫の確認</span></div>
-        <div class="todo-item"><div class="box"></div><span>泥マスチェック</span></div>
-        <div class="todo-item"><div class="box"></div><span>掃除・片付け（終了後）</span></div>
+        <div class="todo-tabs"><span class="active">本日</span></div>
+        <div id="todo-list"><div class="todo-empty">読み込み中…</div></div>
       </div>
     </div>
   </div>
@@ -3643,6 +3642,71 @@
   // シフトカードの実データが流れるように。表示は「配置図」タブを開いたとき）。
   window.addEventListener('DOMContentLoaded', function(){ setTimeout(ensureFullFrame, 1200); });
 
+  /* ===== ⑩ センターTODOマスタ → TODOカード（2026-09-08 新設） =====
+     「センターTODOマスタ」シート（保管庫SS・A=業務/B=頻度）に行を足すだけで、起動時の初回取得と
+     bundle（30秒）経由で自動的にカードへ反映される。チェックはその場で見た目を切り替え、
+     GASの「TODO履歴」シートへ1行追記（上書きしない＝履歴が残る）。状態はサーバ側で履歴から都度組み立てる。 */
+  var TODO_MASTER = [];
+  var TODO_STATE  = {};
+  var _todoPending = 0;   // 送信中の件数（>0の間はbundleからの状態上書きを止める＝自分の操作を潰さない）
+  function todoTodayStr_(){ var t=new Date(); return t.getFullYear()+'-'+('0'+(t.getMonth()+1)).slice(-2)+'-'+('0'+t.getDate()).slice(-2); }
+  function todoLocalKey_(){ return 'todo_state_'+todoTodayStr_(); }
+  function todoLoadLocal_(){ try{ TODO_STATE = JSON.parse(localStorage.getItem(todoLocalKey_())||'{}') || {}; }catch(e){ TODO_STATE = {}; } }
+  function todoSaveLocal_(){ try{ localStorage.setItem(todoLocalKey_(), JSON.stringify(TODO_STATE)); }catch(e){} }
+  function todoRender_(){
+    var box = document.getElementById('todo-list');
+    if(!box) return;
+    box.innerHTML = '';
+    if(!TODO_MASTER.length){
+      var e = document.createElement('div'); e.className = 'todo-empty';
+      e.textContent = 'TODOマスタが未登録です（保管庫スプレッドシートの「センターTODOマスタ」シートを確認）';
+      box.appendChild(e); return;
+    }
+    TODO_MASTER.forEach(function(it){
+      var checked = !!TODO_STATE[it.task];
+      var row = document.createElement('div');
+      row.className = 'todo-item' + (checked ? ' done' : '');
+      var b = document.createElement('div'); b.className = 'box';
+      var s = document.createElement('span'); s.className = 'todo-task'; s.textContent = it.task;
+      var f = document.createElement('span'); f.className = 'todo-freq'; f.textContent = it.freq || '';
+      row.appendChild(b); row.appendChild(s); row.appendChild(f);
+      row.addEventListener('click', function(){ todoToggle_(it.task, it.freq); });
+      box.appendChild(row);
+    });
+  }
+  function todoToggle_(task, freq){
+    var next = !TODO_STATE[task];
+    if(next) TODO_STATE[task] = true; else delete TODO_STATE[task];
+    todoSaveLocal_(); todoRender_();
+    todoSendLog_(task, freq, next);
+  }
+  function todoSendLog_(task, freq, checked){
+    if(!CENTER_ENDPOINT) return;
+    _todoPending++;
+    fetch(CENTER_ENDPOINT, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ action:'todoLog', date: todoTodayStr_(), task: task, freq: freq, checked: checked, by: '電子黒板' }) })
+      .then(function(){ _todoPending = Math.max(0, _todoPending - 1); })
+      .catch(function(){ _todoPending = Math.max(0, _todoPending - 1); });
+  }
+  // GAS から items（マスタ全体）と state（本日のチェック状態）をまとめて受け取り反映
+  function todoApply_(d){
+    if(!d) return;
+    if(Array.isArray(d.items)) TODO_MASTER = d.items;
+    if(d.state && !_todoPending){ TODO_STATE = d.state; todoSaveLocal_(); }
+    todoRender_();
+  }
+  // 起動時の初回取得（以後は30秒ごとのbundleが面倒を見る）
+  function todoLoadInit_(){
+    if(!CENTER_ENDPOINT) return;
+    var cb = 'todoCb_' + Date.now(); var s = document.createElement('script'); var done = false;
+    var timer = setTimeout(function(){ if(!done){ done=true; window[cb]=function(){}; s.remove(); } }, 15000);
+    window[cb] = function(d){ if(done) return; done=true; clearTimeout(timer); try{ todoApply_(d||{}); }catch(e){} window[cb]=function(){}; s.remove(); };
+    s.src = CENTER_ENDPOINT + (CENTER_ENDPOINT.indexOf('?')>=0?'&':'?') + 'type=todoMaster&callback=' + cb;
+    s.onerror = function(){ if(!done){ done=true; clearTimeout(timer); window[cb]=function(){}; s.remove(); } };
+    document.head.appendChild(s);
+  }
+  window.addEventListener('DOMContentLoaded', function(){ todoLoadLocal_(); todoRender_(); todoLoadInit_(); });
+
   /* ===== ★ まとめ取得（30秒ポーリング）＝全液晶リンクの本体 =====
      これまで更新のたびに GAS を7〜8回叩いていた（荷造り状態/荷造り/配置図/シフト/配置設定/サマリ/圃場/生産者）。
      30秒間隔にすると3台分で実行回数が多すぎるため、GASの ?type=bundle で全部まとめて1回で取得し、各所へ分配する。
@@ -3690,6 +3754,8 @@
     if(d.hojo && !d.hojo.error && !_hojoDirty){ hojoApplyLive_(d.hojo); }
     // 生産者：自分の未保存入力があるときは上書きしない
     if(d.seisan && !d.seisan.error && !_seisanDirty){ seisanApplyLive_(d.seisan); }
+    // ⑩ センターTODOマスタ＋本日のチェック状態（マスタに行を足すだけで全PCへ自動反映）
+    if(d.todo && !d.todo.error){ todoApply_(d.todo); }
   }
   function centerPollBundle(){
     if(!CENTER_ENDPOINT) return;
