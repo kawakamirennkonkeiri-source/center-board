@@ -2591,9 +2591,14 @@
 
   // GAS: 取得（JSONP）／保存（POST）。圃場と同型。
   var _seisanDirty=false;   // このPCで入力したがまだクラウドに保存できていない＝まとめ取得で上書きしない
+  // 2026-09-08：この端末が最後にサーバーと同期できた時点で知っていた生産者(時間帯|名前)一覧。
+  // 保存時にサーバーへ送り、行単位マージ（他PCが追加/入力した、この端末がまだ知らない生産者を消さない）に使う。
+  var SEISAN_KNOWN_KEYS = null;
+  function seisanKeysOf_(list){ return (list||[]).map(function(p){ return (p.ampm==='PM'?'PM':'AM')+'|'+String(p.name); }); }
   function seisanApplyLive_(data){
     if(data && data.date===SEISAN.date && Array.isArray(data.list) && data.list.length){
       SEISAN.list = data.list.map(function(p){ var rows={}; if(p.rows&&typeof p.rows==='object'){ Object.keys(p.rows).forEach(function(k){ rows[k]=Number(p.rows[k])||0; }); } return { name:String(p.name), ampm:(p.ampm==='PM'?'PM':'AM'), rows:rows, funes:Number(p.funes)||0 }; });
+      SEISAN_KNOWN_KEYS = seisanKeysOf_(SEISAN.list);   // サーバーの最新の生産者一覧を「知っている」状態にする
       seisanSaveLocal(); seisanRender(); seisanApplyToBoard_();   // ③ 収穫舟数を板へ反映
       var t=new Date(); seisanSetStatus('🟢 保存済み '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2),'var(--green)');
       return true;
@@ -2624,10 +2629,12 @@
     _seisanDirty=true;
     seisanSetStatus('保存中…','var(--muted)');
     seisanSaveTimer=setTimeout(function(){
+      var sendList=SEISAN.list;   // この時点の最新状態を送る
+      var sendKnown=SEISAN_KNOWN_KEYS;   // 送信前に知っていた生産者一覧（サーバーの行マージ判定に使う）
       fetch(CENTER_ENDPOINT,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
-        body:JSON.stringify({action:'seisanSave',date:SEISAN.date,list:SEISAN.list})})
+        body:JSON.stringify({action:'seisanSave',date:SEISAN.date,list:sendList,knownKeys:sendKnown})})
         .then(function(r){return r.json();})
-        .then(function(d){ if(d&&d.ok){ _seisanDirty=false; var t=new Date(); seisanSetStatus('🟢 保存済み '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2),'var(--green)'); } else { seisanSetStatus('🟡 保存エラー（ローカルには保持）','#a76a00'); } })
+        .then(function(d){ if(d&&d.ok){ _seisanDirty=false; SEISAN_KNOWN_KEYS=seisanKeysOf_(sendList); var t=new Date(); seisanSetStatus('🟢 保存済み '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2),'var(--green)'); } else { seisanSetStatus('🟡 保存エラー（ローカルには保持）','#a76a00'); } })
         .catch(function(){ seisanSetStatus('🟡 保存失敗（ローカルには保持）','#a76a00'); });
     },700);
   }
