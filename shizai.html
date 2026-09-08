@@ -776,7 +776,7 @@ function computeStock(){
       }
     }
     if(m.noReorder){
-      if(warn||periodicDue||stock<=0){ switchDue=true; switchReason=switchReason||'在庫僅少'; }
+      if(!m.switched && (warn||periodicDue||stock<=0)){ switchDue=true; switchReason=switchReason||'在庫僅少'; }
       warn=false; periodicDue=false;
     }
     /* ③ 別基準：「○日分（既定45日）の在庫が確保できているか」＝消耗品向け。
@@ -961,6 +961,8 @@ function renderDash(){
       if(r.switchDue){ cls='state-warn';
         action='🔁 在庫僅少（残'+fmt(r.stock)+'）'+(nx?' → <b>'+nx.name+'</b>へ':'')+' '+
           (nx?'<button class="btn small" onclick="switchToNext(\''+r.m.id+'\')">▶ 切替</button> ':'<span class="muted">切替先未設定</span> ');
+      }else if(r.m.switched){ cls='muted';
+        action='✅ 切替済み（残'+fmt(r.stock)+'）'+(nx?' <span class="muted">→ '+nx.name+'</span>':'')+' ';
       }else{ cls='muted';
         action='📦 使い切り運用（残'+fmt(r.stock)+'）'+(nx?' <span class="muted">次: '+nx.name+'</span>':'')+' ';
       }
@@ -1653,8 +1655,15 @@ function switchToNext(fromId){
   const n=switchMaterialBom(fromId,to.id);
   m.noReorder=1;   // 旧資材は今後発注しない
   m.switchDate=''; m.switchAfterQty=0; m.switchQtyBase=null;   // 切替条件はリセット（もう切替済み）
+  m.switched=1;    // 切替済み＝以後「切替時期」アラートは出さない
   save();recalcAll();renderBom();renderMat();renderSwitch();
   alert(to.name+' に切り替えました（BOM '+n+'件を付け替え）。\n\n'+to.name+' の在庫がまだなら「🔢在庫」で実数を入れてください。');
+}
+// 切替済みフラグを取り消す（誤操作の巻き戻し用。BOM付け替えはやり直さない＝「切替時期」アラートだけ復活）
+function undoSwitched(id){
+  const m=matById(id); if(!m)return;
+  if(!confirm(m.name+' の「切替済み」を取り消します。（在庫が僅少なら再び「切替時期」のアラートが出るようになります）'))return;
+  m.switched=0; save();recalcAll();renderSwitch();
 }
 // 名前で探す→無ければ作る
 function ensureMaterial(name,cat,unit){
@@ -1685,15 +1694,15 @@ function renderSwitch(){
     let qtyNote='';
     if(Number(m.switchAfterQty||0)>0){ const base=(m.switchQtyBase!=null?Number(m.switchQtyBase):Number(m.initStock||0));
       const used=Math.max(0,base-r.stock); qtyNote='<br><span class="muted" style="font-size:10px">使用 '+fmt(used)+' / '+fmt(m.switchAfterQty)+'枚</span>'; }
-    return `<tr${r.switchDue?' style="background:#fff7ed"':''}>
+    return `<tr${m.switched?' style="opacity:.5;background:#f6f8fa"':(r.switchDue?' style="background:#fff7ed"':'')}>
       <td class="l muted">${esc(m.cat||'')}</td>
-      <td class="l">${esc(m.name)}${m.noReorder?' <span class="tag other">発注しない</span>':''}${r.switchDue?' <span class="tag tuki">切替時期</span>':''}</td>
+      <td class="l">${esc(m.name)}${m.noReorder?' <span class="tag other">発注しない</span>':''}${m.switched?' <span class="tag arai">✅ 切替済み</span>':(r.switchDue?' <span class="tag tuki">切替時期</span>':'')}</td>
       <td style="font-weight:700">${fmt(r.stock)}${m.stockAdj?' <span class="muted" style="font-size:10px" title="棚卸再確認で補正'+(m.stockAdjBy?(' / '+esc(m.stockAdjBy)):'')+'">✎</span>':''}</td>
       <td><input type="checkbox" ${m.noReorder?'checked':''} onchange="setMat('${m.id}','noReorder',this.checked?1:0);renderSwitch();recalcAll()" style="width:18px;height:18px"></td>
       <td class="l"><select style="width:180px" onchange="setMatNext('${m.id}',this.value)">${opts(m.nextMatId||'')}</select></td>
       <td class="l"><input type="date" value="${m.switchDate||''}" onchange="setMatSwitchDate('${m.id}',this.value)" style="width:140px"></td>
       <td><input class="cell" type="number" min="0" placeholder="枚数" value="${m.switchAfterQty||''}" onchange="setMatSwitchQty('${m.id}',this.value)">${qtyNote}</td>
-      <td class="l">${nx?'<button class="btn warn small" onclick="switchToNext(\''+m.id+'\')">▶ 今すぐ '+esc(nx.name)+' に切替</button> ':''}<button class="btn sec small" onclick="openCountDlg('${m.id}')">🔢在庫</button></td>
+      <td class="l">${m.switched?'<span class="muted">✅ 切替済み</span> <button class="btn sec small" onclick="undoSwitched(\''+m.id+'\')">元に戻す</button> ':(nx?'<button class="btn warn small" onclick="switchToNext(\''+m.id+'\')">▶ 今すぐ '+esc(nx.name)+' に切替</button> ':'')}<button class="btn sec small" onclick="openCountDlg('${m.id}')">🔢在庫</button></td>
     </tr>`;
   }).join('');
   const chain=S.materials.filter(m=>m.noReorder||m.nextMatId);
