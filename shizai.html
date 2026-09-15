@@ -1000,7 +1000,7 @@ function renderDash(){
       <td class="l muted">${r.m.cat}</td><td class="l">${r.m.name}${r.off?' <span class="tag other">季節外</span>':''}${r.m.noReorder?' <span class="tag other">発注しない</span>':''}${r.mode!=='auto'&&!r.off?' <span class="tag kg">'+(r.mode==='periodic'?'定期':r.mode==='threshold'?'残数':'監視なし')+'</span>':''}</td>
       <td style="font-weight:800">${fmt(r.stock)}${r.m.stockAdj?'<br><span class="muted" style="font-size:10px" title="棚卸再確認で補正'+(r.m.stockAdjBy?(' / '+esc(r.m.stockAdjBy)):'')+'">✎'+(r.m.stockAdjDate?r.m.stockAdjDate.slice(5):'手入力')+'</span>':''}</td>
       <td>${isHinode(r.m)?'<input class="cell" type="number" min="0" style="width:72px" value="'+(r.m.hinodeStock||'')+'" onchange="setHinode(\''+r.m.id+'\',this.value)" title="日野出さん保管分（すぐ届く）">':'<span class="muted">—</span>'}</td>
-      <td>${showAuto?fmt1(r.daily):'—'}</td>
+      <td>${(showAuto&&!r.hasFuture)?fmt1(r.daily):'—'}</td>
       <td>${showAuto?projTxt:'—'}</td>
       <td class="l">${showAuto?'<span class="daybar"><span style="width:'+Math.round(ratio*100)+'%;background:'+barColor+'"></span></span>':'<span class="muted">—</span>'}</td>
       <td>${showAuto?fmt(r.reorder)+'<br><span class="muted" style="font-size:11px">閾値 '+r.thresholdDays+'日</span>':'—'}</td>
