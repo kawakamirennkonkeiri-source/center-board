@@ -801,7 +801,7 @@ function computeStock(){
           if(coverWarn)coverNeed=Math.max(0,Math.ceil(coverDaily*coverDays-eff));
         }
       }
-      if(coverWarn&&!m.noReorder)warn=true;
+      if(coverSrc&&!m.noReorder)warn=coverWarn;   // 資材マスタの基準（○日分）が計算できたらそちらを優先＝発注書ベースの判定を上書き
     }
     let need=Math.max(0,Math.ceil(reorder+daily*safety-eff)); // 補充目安（次の安全在庫まで。日野出保管も差し引く）
     if(coverNeed>need)need=coverNeed;                         // ③ 45日分に足りない量の方が多ければそちらを採用
