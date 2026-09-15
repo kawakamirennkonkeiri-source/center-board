@@ -980,8 +980,11 @@ function renderDash(){
     }else{ cls='state-ok'; action=(r.mode==='threshold'?'✅ 適正（残'+fmt(r.stock)+'）':'✅ 適正')+' '+orderBtn; }
     // ③ 別基準「○日分の在庫が確保できているか」＝設定は「資材マスタ」画面。ここは結果だけ表示（ボタンは置かない＝画面をシンプルに）。
     if(!r.off && r.coverOn){
+      // 発注書ベース(plan)は「在庫切れ予定」列に実際の日付があるので、平均ペースの日数は出さない（紛らわしいため）。
+      // 実績平均(avg)しか根拠が無い資材だけ「いま○日分」を表示。
       const haveTxt=(r.coverHave!=null&&isFinite(r.coverHave))?fmt(r.coverHave)+'日分':(r.coverDaily>0?'—':'使用量不明');
-      action+=' <span class="'+(r.coverWarn?'state-warn':'state-ok')+'" style="font-size:11px" title="'+(r.coverSrc==='plan'?'これから'+fmt(r.coverDays)+'日ぶんの予定（シフト・発注書）から判定':'起点日〜基準日の日次平均から判定')+'（基準の追加・変更は「資材マスタ」画面）">'+(r.coverWarn?'⚠️':'✅')+'基準'+fmt(r.coverDays)+'日分：いま '+haveTxt+'</span>';
+      const haveSuffix = r.coverSrc==='avg' ? '：いま '+haveTxt : '';
+      action+=' <span class="'+(r.coverWarn?'state-warn':'state-ok')+'" style="font-size:11px" title="'+(r.coverSrc==='plan'?'これから'+fmt(r.coverDays)+'日ぶんの予定（シフト・発注書）から判定':'起点日〜基準日の日次平均から判定')+'（基準の追加・変更は「資材マスタ」画面）">'+(r.coverWarn?'⚠️':'✅')+'基準'+fmt(r.coverDays)+'日分'+haveSuffix+'</span>';
     }
     if(!r.off && r.hasSeason){
       action+=' <button class="btn '+(r.suggest==='off'?'warn':'sec')+' small" onclick="toggleSeason(\''+r.m.id+'\')">'+(r.suggest==='off'?'⏸ 季節外にする（そろそろ）':'季節外にする')+'</button>';
@@ -1000,7 +1003,7 @@ function renderDash(){
       <td class="l muted">${r.m.cat}</td><td class="l">${r.m.name}${r.off?' <span class="tag other">季節外</span>':''}${r.m.noReorder?' <span class="tag other">発注しない</span>':''}${r.mode!=='auto'&&!r.off?' <span class="tag kg">'+(r.mode==='periodic'?'定期':r.mode==='threshold'?'残数':'監視なし')+'</span>':''}</td>
       <td style="font-weight:800">${fmt(r.stock)}${r.m.stockAdj?'<br><span class="muted" style="font-size:10px" title="棚卸再確認で補正'+(r.m.stockAdjBy?(' / '+esc(r.m.stockAdjBy)):'')+'">✎'+(r.m.stockAdjDate?r.m.stockAdjDate.slice(5):'手入力')+'</span>':''}</td>
       <td>${isHinode(r.m)?'<input class="cell" type="number" min="0" style="width:72px" value="'+(r.m.hinodeStock||'')+'" onchange="setHinode(\''+r.m.id+'\',this.value)" title="日野出さん保管分（すぐ届く）">':'<span class="muted">—</span>'}</td>
-      <td>${(showAuto&&!r.hasFuture)?fmt1(r.daily):'—'}</td>
+      <td>${showAuto?fmt1(r.daily):'—'}</td>
       <td>${showAuto?projTxt:'—'}</td>
       <td class="l">${showAuto?'<span class="daybar"><span style="width:'+Math.round(ratio*100)+'%;background:'+barColor+'"></span></span>':'<span class="muted">—</span>'}</td>
       <td>${showAuto?fmt(r.reorder)+'<br><span class="muted" style="font-size:11px">閾値 '+r.thresholdDays+'日</span>':'—'}</td>
