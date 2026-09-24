@@ -115,7 +115,7 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
   <div class="tablewrap">
     <table id="dashTable">
       <thead><tr>
-        <th class="l">分類</th><th class="l">資材名</th><th>現在庫</th><th title="日野出さんが保管している自社分（頼めば2日弱で届く）。仕入先が日野出の資材だけ入力可">日野出在庫</th><th title="起点日〜基準日の平均使用">日次平均</th>
+        <th class="l">分類</th><th class="l">資材名</th><th title="基準在庫＋入庫−理論使用±再棚卸。月末棚卸タブの「理論在庫」と同じ数字です">現在庫</th><th title="日野出さんが保管している自社分（頼めば2日弱で届く）。仕入先が日野出の資材だけ入力可">日野出在庫</th><th title="起点日〜基準日の平均使用">日次平均</th>
         <th title="発注書の今後予定から算出。無い資材は過去平均">在庫切れ予定<br>(あと何日)</th><th class="l">在庫の余裕</th><th>必要在庫<br>(発注点)</th>
         <th class="l">状態 / アクション</th><th>発注目安</th><th class="l">仕入先 / LT</th>
       </tr></thead>
@@ -203,6 +203,7 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
 <section id="view-stock" class="view">
   <div class="sec-title">月末棚卸（実数合わせ → 破棄率を自動学習）</div>
   <div class="hint">
+  <b>📌 この表の「理論在庫」＝在庫ダッシュボードの「現在庫」と同じ数字です</b>（どちらも 基準在庫＋入庫−理論使用±再棚卸補正）。破棄見込みは在庫から引かず、発注判定の消費予測にだけ使います。<br>
   棚卸をした日を選び、<b>実際の在庫数</b>を入力して「<b>この日の棚卸を確定</b>」すると：<br>
   ① 差（理論在庫−実在庫＝ロス）から <b>破棄率＝ロス÷理論使用量</b> を自動計算し、資材マスタの破棄率を更新（回数を重ねるほど精度UP）。<br>
   ② 実在庫を新しい基準在庫にリセット（＝ドリフトをゼロ点合わせ）／起点日を<b>棚卸日の翌日</b>へ／バックアップを保存。<br>
@@ -221,7 +222,7 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
     <table id="stTable">
       <thead><tr>
         <th class="l">資材</th><th>基準在庫</th><th>入庫</th><th>理論使用</th>
-        <th title="棚卸再確認で入れた実数への補正（±）">再棚卸<br>(補正)</th><th title="基準在庫＋入庫−理論使用±再棚卸">理論在庫</th>
+        <th title="棚卸再確認で入れた実数への補正（±）">再棚卸<br>(補正)</th><th title="基準在庫＋入庫−理論使用±再棚卸。在庫ダッシュボードの「現在庫」と同じ数字です">理論在庫<br><span class="muted" style="font-weight:400;font-size:11px">＝現在庫</span></th>
         <th>実在庫(入力)</th><th>ロス</th><th>破棄率</th><th class="l">判定 / 理由</th>
       </tr></thead>
       <tbody></tbody>
@@ -732,8 +733,9 @@ function computeStock(){
   const fmap=futureDemandByMat(); const base=S.settings.baseDate||todayStr();
   return S.materials.map(m=>{
     const theo=use[m.id]||0;
-    const scrap=theo*(Number(m.scrapRate||0)/100);
-    const stock=Number(m.initStock||0)+(rec[m.id]||0)-theo-scrap+Number(m.stockAdj||0);
+    const scrap=theo*(Number(m.scrapRate||0)/100);   // 破棄見込み＝発注判定の「消費予測」にだけ使う（在庫からは引かない）
+    // 現在庫＝基準在庫＋入庫−理論使用±再棚卸補正。月末棚卸タブの「理論在庫」と同じ式＝現場の実数に合う
+    const stock=Number(m.initStock||0)+(rec[m.id]||0)-theo+Number(m.stockAdj||0);
     const hinode=Number(m.hinodeStock||0);             // 日野出さん保管分（頼めば2日弱で届く自社在庫）
     const eff=stock+hinode;                            // 実質在庫＝現在庫＋日野出保管（発注判定に使う）
     const gross=theo+scrap;
@@ -806,7 +808,7 @@ function computeStock(){
     let need=Math.max(0,Math.ceil(reorder+daily*safety-eff)); // 補充目安（次の安全在庫まで。日野出保管も差し引く）
     if(coverNeed>need)need=coverNeed;                         // ③ 45日分に足りない量の方が多ければそちらを採用
     if(m.minLot&&need>0)need=Math.ceil(need/m.minLot)*m.minLot;
-    return {m,theo,scrap,received:rec[m.id]||0,stock,hinode,eff,daily,stockDays,thresholdDays,reorder,warn,need,off,mode,periodicDue,periodicNext,switchDue,switchReason,
+    return {m,theo,scrap,received:rec[m.id]||0,stock,theoStock:stock,hinode,eff,daily,stockDays,thresholdDays,reorder,warn,need,off,mode,periodicDue,periodicNext,switchDue,switchReason,
       hasFuture,runoutDate,runoutDays,futureTotal,
       coverOn,coverDays,coverWarn,coverHave,coverDaily,coverSrc,
       hasSeason:hasSeason(m),suggest:seasonSuggest(m),order:openOrderOf(m.id)};
@@ -1308,8 +1310,8 @@ function renderStock(){
   document.getElementById('stAlertPct').textContent=S.settings.scrapAlertPct;
   const rows=computeStock();
   stRows=rows.map(r=>{
-    // 破棄前の理論在庫（棚卸再確認で入れた実数＝stockAdj も反映）
-    const theoStock=Number(r.m.initStock||0)+r.received-r.theo+Number(r.m.stockAdj||0);
+    // 理論在庫＝在庫ダッシュボードの「現在庫」と同じ数字（computeStock から直結。基準在庫＋入庫−理論使用±再棚卸補正）
+    const theoStock=r.stock;
     return {mid:r.m.id,name:r.m.name,base:r.m.initStock,rec:r.received,theo:r.theo,theoStock,adj:Number(r.m.stockAdj||0)};
   });
   const date=document.getElementById('st_date').value;const month=date?date.slice(0,7):'';
