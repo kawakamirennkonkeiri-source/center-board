@@ -3107,10 +3107,13 @@
   }
   // ④ 区分「C/S」＝加工向け。荷造りkg（歩留まりの分子）からは外し、CSキロとして別に集計する。
   //    判定は発注書4行目（区分行）の値＝板に出ている区分バッジ（C/S・CS・C／S 等の表記ゆれを吸収）。
+  //    2026-09-29：「C」「S」単独、「CとS」「SとC」「C・S」等も対象に拡大（曽我さん依頼。区分「C」が歩留まりに混ざっていた）。
   function nzIsCS(o){
-    var b = String((o && o.bunrui) || '').replace(/[\s　]/g, '').toUpperCase();
+    var b = String((o && o.bunrui) || '');
+    try{ b = b.normalize('NFKC'); }catch(e){}
+    b = b.replace(/[\s　]/g, '').toUpperCase();
     if(!b) return false;
-    return /^[CＣ][\/／・]?[SＳ]$/.test(b) || b === 'CS' || b === 'C／S';
+    return /^(C|S|C[\/・&と]?S|S[\/・&と]?C)$/.test(b);
   }
   // ① 生産者から持ち込まれた分のkg（＝生産者タブの出来高kg）。本日実績の荷造りkgからは差し引く。
   //    main＝洗い＋土付き＋半端（歩留まりの分子から除外）／cs＝C・S（CSキロから除外）
