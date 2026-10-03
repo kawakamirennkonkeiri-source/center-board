@@ -428,6 +428,8 @@
   .nz-status[data-st="mikettei"]{ background:#fff7e6; border-color:#f2c661; color:#9a6a00;}
   .nz-status[data-st="kakutei"]{ background:#e8f1fd; border-color:#7fb0ec; color:var(--blue-deep);}
   .nz-status[data-st="sakusei"]{ background:#e7f6e7; border-color:#7ecb7e; color:#1c7d1c;}
+  .nz-status{ white-space:nowrap; }
+  .nz-status .nz-auto{ margin-left:4px; font-size:.7em; font-weight:700; padding:0 4px; border-radius:6px; background:rgba(0,0,0,.08); vertical-align:middle; }
   .nz-row .new-flag{
     display:inline-block; font-size:11px; font-weight:800; color:#fff; background:var(--red);
     padding:1px 7px; border-radius:9px; margin-left:8px; letter-spacing:.05em; vertical-align:middle;
@@ -1587,7 +1589,7 @@
             `<div class="idx">${idx+1}</div>`+
             `<div class="cust">${nzCustLabel_(o.cust)}${o.bunrui?`<span class="bunrui ${nzBunruiClass(o.bunrui)}">${o.bunrui}</span>`:''}${isKg?`<span class="bunrui b-kg">㎏</span>`:''}${o.isNew?`<span class="new-flag">NEW</span>`:''}</div>`+
             `<div class="nyusu">${isKg?`<small>㎏で入力</small>`:(o.nyusu?`入数 ${o.nyusu}<small>㎏</small>`:`<small>入数 —</small>`)}</div>`+
-            `<button class="nz-status" data-st="${o.st}"><span class="mk">${s.mk}</span>${s.label}</button>`+
+            `<button class="nz-status" data-st="${o.st}" title="${nzStatusTip_(o)}"><span class="mk">${s.mk}</span>${s.label}${o.stSrc==='color'?'<span class="nz-auto">自動</span>':''}</button>`+
           `</div>`+
           `<div class="qc4">`+
             `<div class="qi total"><span class="ql">合計</span><span class="cs">${nzFmtKg(totalCs)}<small>${U}</small></span><span class="qkg">${kg2(totalCs)}</span></div>`+
@@ -1604,7 +1606,8 @@
           (nzIsVacPillow(o) ? `<div class="nz-carry" data-carry style="display:none"></div>` : ``);
         row.querySelector('.nz-status').onclick = () => {
           NZ_ORDERS[gi].st = NZ_ST[NZ_ORDERS[gi].st].next;
-          nzSaveStatusOne(NZ_ORDERS[gi]._id, NZ_ORDERS[gi].st);   // ブラウザに保存（翌日も残る）
+          NZ_ORDERS[gi].stSrc = 'manual';
+          nzSaveStatusOne(NZ_ORDERS[gi]._id, NZ_ORDERS[gi].st, NZ_ORDERS[gi].color);   // ⑤ 押した時の文字色も保存（色が変わったら自動に戻す）
           nzRender();
         };
         // ② 「先の発注へ振り分け」欄を描き直す（超過が出た／無くなったで出し入れする）
@@ -2009,11 +2012,38 @@
   }
 
   // ---- 書き込み（NZS更新＋localStorage控え＋クラウドへ“変更分だけ”送信）----
-  function nzSaveStatusOne(id, st){
+  function nzSaveStatusOne(id, st, color){
     if(!id) return;
     if(st === 'mikettei') delete NZS.status[id]; else NZS.status[id] = st;  // 未確定は既定なので保存しない
     _nzsPatch.status[id] = (st === 'mikettei') ? null : st;
+    // ⑤ 押した時の発注書の文字色も一緒に残す（別キー id+'#m'＝「状態|色」。古い画面は読まないので互換）
+    const mv = st + '|' + (color || '');
+    NZS.status[id + NZ_MANUAL_SUFFIX] = mv; _nzsPatch.status[id + NZ_MANUAL_SUFFIX] = mv;
     nzPruneOld_(90); nzMirrorLocal(); nzStateScheduleSave();
+  }
+  // ⑤ 2026-10-03（曽我さん依頼）：状態を発注書の数字の文字色で自動判定（赤＝未確定／黒・青＝確定）
+  //   ・手で押した状態は「押した時の色」と今の色が同じ間だけ優先。発注書の色が変われば自動（色の状態）に戻る。
+  //   ・作成済みは常に手動優先（色で戻さない）。色が読めない注文は従来どおり手動の状態。
+  var NZ_MANUAL_SUFFIX = '#m';
+  function nzStatusTip_(o){
+    const cn = { red:'赤', black:'黒', blue:'青' }[o.color] || '';
+    if(o.stSrc === 'color') return '発注書の数字が' + cn + ' → 自動で「' + NZ_ST[o.st].label + '」（赤＝未確定／黒・青＝確定）。押すと手で変えられます';
+    if(o.st === 'sakusei') return '作成済み（手で変更。発注書の色では戻りません）。押すと未確定に戻ります';
+    if(cn) return '手で変更中（発注書の数字は' + cn + '）。発注書の色が変わると自動に戻ります';
+    return '発注書の文字色が読めないため手動です。押すと 未確定→確定→作成済み';
+  }
+  function nzColorState_(color){ return color === 'red' ? 'mikettei' : (color === 'black' || color === 'blue') ? 'kakutei' : ''; }
+  function nzResolveState_(id, color, store){
+    store = store || NZS.status;
+    const legacy = store[id] || '';
+    const mraw = store[id + NZ_MANUAL_SUFFIX];
+    const mp = mraw ? String(mraw).split('|') : null;
+    const mst = mp && NZ_ST[mp[0]] ? mp[0] : '', mcol = mp ? (mp[1] || '') : '';
+    if(mst === 'sakusei' || (!mst && legacy === 'sakusei')) return { st:'sakusei', src:'manual' };
+    const cs = nzColorState_(color);
+    if(!cs) return { st: mst || (NZ_ST[legacy] ? legacy : 'mikettei'), src:'manual' };   // 色が読めない
+    if(mst && mcol === color) return { st: mst, src:'manual' };
+    return { st: cs, src:'color' };
   }
   // ①②：日付を指定してその日の生産量を直接上書きする（同じ日付を何度指定しても行が増えない＝上書き）
   function nzSetProdOnDate(key, dateStr, cs){
@@ -2161,9 +2191,10 @@
       data.days.forEach((d,i) => {
         (d.orders||[]).forEach(o => {
           const id = d.date+'|'+o.cust+'|'+(o.bunrui||'')+'|'+(o.nyusu||0);
+          const rs = nzResolveState_(id, o.color||'', statusStore);   // ⑤ 発注書の文字色で自動判定（手で変えた分は同じ色の間だけ優先）
           NZ_ORDERS.push({
             date:'d'+i, _id:id, cust:o.cust, bunrui:o.bunrui||'', nyusu:o.nyusu||0,
-            qty:o.qty||0, kg:o.kg||0, unit:o.unit||'', st: statusStore[id] || 'mikettei',   // ④ unit==='kg' は個人注文/その他サンプル（kg表示）
+            qty:o.qty||0, kg:o.kg||0, unit:o.unit||'', st: rs.st, stSrc: rs.src, color: o.color||'',   // ④ unit==='kg' は個人注文/その他サンプル（kg表示）
             isNew: !!o.isNew   // ③ 発注書の変更検知はGAS側で判定（全PC共通・追加/数量変更のみNEW）
           });
         });

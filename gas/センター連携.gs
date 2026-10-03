@@ -35,10 +35,27 @@ var CFG = {
   SKILL_SS_ID:  '1D0DPqy1chAdcBFyIczYtAJx7CJMTlevhlfxlO0HINGo',
   SKILL_SHEET:  '力量表',
   PRIO_SHEET:   '配置優先',   // ① 配置図の11工程ごとの優先番号を数字で管理する専用シート（力量表SS内。力量表〈○×〉とは別に持つ）
+
+  // 電子黒板・資材アプリの状態/バックアップ専用スプレッドシート（2026-09-03新設）。
+  //   ★以前はここに並ぶ全部が「力量表」スプレッドシートに間借りしていて分かりにくかったため分離。
+  //   力量表SSに残すのは「力量表」（力量○×の本体）と「配置優先」（力量表と一体で使う優先番号）だけ。
+  //   それ以外（本日荷造り状態・配置設定・実績・圃場舟数・生産者記録・荷造りスナップショット・
+  //   ポジション履歴・本日荷造り進捗(テスト)・資材データ/資材バックアップ/月末棚卸（実数））は全部こちらへ。
+  BOARD_DATA_SS_ID: '1j55dNG7RkrytEPhvbCfMi0Y9W5beKH0xBp7YuC0OAic',   // 【センターDX】電子黒板データ保管庫
   POSITION_SHEET: 'ポジション履歴',   // 配置図の保存先シート（力量表と同じスプレッドシート内。無ければ自動作成）
   JISSEKI_SHEET:  '実績',            // 本日実績シート（力量表と同じスプレッドシート内。列＝日付/荷造り舟数/荷造りkg/歩留まり(%)）
   HOJO_SHEET:     '圃場舟数',        // ⑥ 圃場（畑）から持ってきた舟数の記録（力量表SS内。列＝日付/圃場/舟数/更新日時）
   SEISAN_SHEET:   '生産者記録',      // ⑥ 生産者の持ち込み舟数・出来高（力量表SS内。列＝日付/時間帯/生産者/区分/サイズkg/舟数/出来高kg/更新日時。実績数量には含めない）
+
+  // ⑩ センターTODOマスタ（2026-09-08 新設）：BOARD_DATA_SS_ID内の一覧シート（A=業務/B=頻度・1行目見出し）を
+  //   電子黒板が読んで表示。チェック操作は「TODO履歴」シートへ1行追記するだけ（状態はここに持たず履歴から都度組み立てる）。
+  TODO_MASTER_SHEET: 'センターTODOマスタ',
+  TODO_LOG_SHEET:    'TODO履歴',
+
+  // ⑪ Googleカレンダー連携（2026-09-10 新設）：このカレンダーの当日予定のうち、タイトルにキーワードを
+  //   含むものだけTODOカードへ自動追加（例「センター包丁研ぎチェック」→「包丁研ぎチェック」）。
+  TODO_CALENDAR_ID:      'kawakamirennkonkeiri@gmail.com',
+  TODO_CALENDAR_KEYWORD: 'センター',
 
   // ⑥ 生産DX（朝礼ボード）＝今日活動する圃場名の“マスタ”。毎朝ここから圃場（畑）タブへ自動反映する。
   //   生産のスプレッドシート（A列＝本日の日付／B列＝圃場名）を、生産DXのWebアプリが読んで返す。
@@ -76,8 +93,8 @@ var CFG = {
   GLOVE_SIZE_COL: 'A',         // サイズ列＝A列（空にすると自動検出）
 
   // 資材管理アプリ（クラウド共有）。アプリのデータ一式をこのシートに保存し、全PCで共有する。
-  //   空欄のままなら SKILL_SS_ID（力量表のスプレッドシート）内に「資材データ」シートを自動作成して使う。
-  SHIZAI_SS_ID: '',           // 別のスプレッドシートに保存したい時だけIDを入れる（空＝力量表SSを使う）
+  //   空欄のままなら BOARD_DATA_SS_ID（電子黒板データ保管庫）内に「資材データ」シートを自動作成して使う（2026-09-03〜）。
+  SHIZAI_SS_ID: '',           // 別のスプレッドシートに保存したい時だけIDを入れる（空＝BOARD_DATA_SS_IDを使う）
   SHIZAI_SHEET: '資材データ',
   SHIZAI_BACKUP_SHEET: '資材バックアップ',   // 月末棚卸ごとの世代バックアップ（追記のみ・上書きしない＝復元用のJSON）
   SHIZAI_STOCK_SHEET: '月末棚卸（実数）',    // 人が読める実数の表（A列=資材／月ごとに列が増えるピボット）
@@ -110,6 +127,7 @@ function doGet(e){
     if(type === 'shift')         out = getShift_(e.parameter);   // &date=YYYY-MM-DD で「その日」のシフト（🔮配置図（予測）用。省略＝今日）
     else if(type === 'haichi')   out = getHaichi_();
     else if(type === 'nizukuri') out = getNizukuri_(e.parameter);
+    else if(type === 'debugColors') out = debugColors_(e.parameter);   // ⑤ 発注書の数字の文字色→状態の判定（診断用・読み取りのみ）
     else if(type === 'nizukuriSave') out = saveNizukuri_(e.parameter);   // ② 本日荷造りの前日/本日入力→テスト用進捗シートへ記録（力量表SS・既存シートは触らない）
     else if(type === 'nizukuriProgress') out = getNizukuriProgress_(e.parameter); // ② テスト用進捗シートの保存済み値を返す（前日/本日の復元用）
     else if(type === 'savePosition') out = savePosition_(e.parameter);   // 配置図→ポジション履歴に保存（書き込み）
@@ -127,8 +145,9 @@ function doGet(e){
     else if(type === 'sendHelp') out = sendHelp_(e.parameter);            // ③ センターヘルプ要請をSlackへ中継（WebhookはHTMLに置かずここで保持）
     else if(type === 'sendSlack') out = sendHelp_(e.parameter);           // ⑧ 汎用Slack投稿（繁忙期の資材再確認報告など）。中身は sendHelp_ と同じ中継。
     else if(type === 'gloveUsage') out = getGloveUsage_(e.parameter);     // ⑦ 手袋：シフトの出勤者数×1人あたり枚数を日別・サイズ別に返す
+    else if(type === 'todoMaster') out = getTodoBoard_(e.parameter.date); // ⑩ センターTODOマスタ一覧＋本日（or指定日）のチェック状態
     else if(type === 'debug')    out = debugTop_();     // 構造確認用
-    else out = { error:'type を shift / haichi / nizukuri / nizukuriStateGet / savePosition / summary / hojoGet / seisanGet / haichiCfgGet / gloveUsage / shizaiUsage / shizaiLoad / shizaiMeta / shizaiBackupList / shizaiBackupGet のいずれかで指定してください' };
+    else out = { error:'type を shift / haichi / nizukuri / nizukuriStateGet / savePosition / summary / hojoGet / seisanGet / haichiCfgGet / gloveUsage / todoMaster / shizaiUsage / shizaiLoad / shizaiMeta / shizaiBackupList / shizaiBackupGet のいずれかで指定してください' };
   }catch(err){
     out = { error: String(err && err.message || err) };
   }
@@ -159,6 +178,7 @@ function doPost(e){
     else if(action === 'seisanSave') out = seisanSave_(body);               // ⑥ 生産者：指定日の持ち込み舟数・出来高を保存（upsert）
     else if(action === 'haichiCfgSave') out = saveHaichiCfg_(body);          // ① 配置図の設定（ゾーン/優先番号/手動配置）をクラウドへ保存＝全PC共有
     else if(action === 'nizukuriStateSave') out = saveNizukuriState_(body);   // ③ 本日荷造りの状態・作った分をクラウドへ保存（サーバ側マージ）＝全PC共有
+    else if(action === 'todoLog') out = todoLogAppend_(body);                // ⑩ センターTODOのチェック/解除を履歴へ1行追記
     else out = { ok:false, error:'unknown action: ' + action };
   }catch(err){
     out = { ok:false, error:String(err && err.message || err) };
@@ -202,7 +222,7 @@ function testSendHelp(){ Logger.log(JSON.stringify(sendHelp_({ msg:'🆘 テス�
 //     A5〜 ＝ JSON文字列を45000字ごとに分割して縦に格納（セルは最大約5万字のため）
 // ============================================================
 function shizaiSheet_(){
-  var id = CFG.SHIZAI_SS_ID || CFG.SKILL_SS_ID;
+  var id = CFG.SHIZAI_SS_ID || CFG.BOARD_DATA_SS_ID;
   var ss = SpreadsheetApp.openById(id);
   var name = CFG.SHIZAI_SHEET || '資材データ';
   var sh = ss.getSheetByName(name);
@@ -285,7 +305,7 @@ function testShizaiState(){ Logger.log(JSON.stringify(getShizaiMeta_(), null, 2)
 //   ※同じ月を複数回確定した場合も上書きせず追記。一覧/復元は「その月の最新行」を使う。
 // ============================================================
 function shizaiBackupSheet_(){
-  var id = CFG.SHIZAI_SS_ID || CFG.SKILL_SS_ID;
+  var id = CFG.SHIZAI_SS_ID || CFG.BOARD_DATA_SS_ID;
   var ss = SpreadsheetApp.openById(id);
   var name = CFG.SHIZAI_BACKUP_SHEET || '資材バックアップ';
   var sh = ss.getSheetByName(name);
@@ -311,6 +331,7 @@ function saveShizaiBackup_(body){
     if(parts.length === 0) parts = [''];
     var row = [month, savedAt, by, json.length, parts.length].concat(parts);
     sh.appendRow(row);
+    sortSheetDescByHeader_(sh, '保存日時');   // 2026-09-03：常に保存日時の新しい順（降順）で並べ直す
     // 人が読める「実数」の表も更新（失敗しても復元用JSONは守る）。列見出し＝棚卸日（無ければ月）
     var colLabel = String(body.date || '') || month;
     try{ writeStocktakeTable_(colLabel, body.stock); }catch(e){}
@@ -327,7 +348,7 @@ function writeStocktakeTable_(colLabel, stock){
   if(!colLabel || !stock) return;
   var rows = (typeof stock === 'string') ? JSON.parse(stock) : stock;   // POSTでは配列 or JSON文字列
   if(!rows || !rows.length) return;
-  var id = CFG.SHIZAI_SS_ID || CFG.SKILL_SS_ID;
+  var id = CFG.SHIZAI_SS_ID || CFG.BOARD_DATA_SS_ID;
   var ss = SpreadsheetApp.openById(id);
   var name = CFG.SHIZAI_STOCK_SHEET || '月末棚卸（実数）';
   var sh = ss.getSheetByName(name);
@@ -348,7 +369,9 @@ function writeStocktakeTable_(colLabel, stock){
     var r = rows[k]; var nm = String(r.name || ''); if(!nm) continue;
     var rr = rowOf[nm];
     if(!rr){ rr = nextRow++; sh.getRange(rr, 1).setValue(nm); sh.getRange(rr, 2).setValue(r.unit || ''); rowOf[nm] = rr; }
-    sh.getRange(rr, col).setValue(r.actual);
+    var cell = sh.getRange(rr, col);
+    cell.setValue(r.actual);
+    cell.setNote(r.reason ? ('理由：' + r.reason) : '');   // 破棄率が多い時に書いた理由をセルのメモとして残す
   }
 }
 // 見出しセル（文字列 or 日付に化けたもの）を、ラベルと同じ粒度（日 or 月）で正規化して比較に使う
@@ -414,10 +437,19 @@ function testShizaiBackup(){ Logger.log(JSON.stringify(getShizaiBackupList_(), n
 // ============================================================
 function getSummary_(params){
   var today = params && params.date ? parseParamDate_(params.date) : new Date();
-  var out = { date: Utilities.formatDate(today, CFG.TZ, 'yyyy-MM-dd'), targetFunes: null, jisseki: { funes:null, kg:null, budomari:null }, orderTotalKg: null };
+  var out = { date: Utilities.formatDate(today, CFG.TZ, 'yyyy-MM-dd'), targetFunes: null, jisseki: { funes:null, kg:null, budomari:null }, orderTotalKg: null, orderKawakamiKg: null, orderBudomari: null, orderCsRate: null, orderKawakamiCsKg: null };
   try{ out.targetFunes = readOrderFunes_(today); }catch(e){ out.targetError = String(e); }
   try{ out.jisseki = readJisseki_(today); }catch(e){ out.jissekiError = String(e); }
-  try{ out.orderTotalKg = readOrderProgressKg_(today); }catch(e){ out.orderTotalKgError = String(e); }
+  try{
+    var prog = readOrderProgressRow_(today);
+    out.orderTotalKg    = prog.totalKg;
+    out.orderKawakamiKg = prog.kawakamiKg;
+    out.orderBudomari   = prog.budomari;
+    out.orderCsRate     = prog.csRate;   // ② 発注書「進捗」シートのCS率（参考値・比較表示専用。読み取り専用）
+  }catch(e){ out.orderTotalKgError = String(e); }
+  try{ out.orderProgressByClient = readOrderProgressByClient_(today); }catch(e){ out.orderProgressByClientError = String(e); }
+  // 2026-09-03：荷造りCS㎏を「カワカミ荷造数」欄から自動計算（曽我さん依頼。読み取り専用）
+  try{ out.orderKawakamiCsKg = readKawakamiCsKg_(today); }catch(e){ out.orderKawakamiCsKgError = String(e); }
   return out;
 }
 // 発注書メインシートの「収穫舟数」列（見出しで自動検出）× 日付(B列)が今日の行の値。
@@ -450,40 +482,293 @@ function readOrderFunes_(today){
   }
   return null;
 }
-// 発注書「進捗」シートの「合計kg数」列（見出しで自動検出・列固定しない）× A列が今日の行の値。
-//   ★ ここは電子黒板の「荷造りkg（実績）」と突き合わせて一致確認するための値。
-//   ・列は固定しない：新規取引先が増えて列がズレても、見出し文字「合計kg数」（全角㎏表記も可）で探す（上から10行を走査）。
+// 発注書「進捗」シートの「合計kg数」「カワカミ荷造数」「歩留まり」列（見出しで自動検出・列固定しない）
+//   × A列が今日の行の値。
+//   ★ 電子黒板の「荷造りkg（実績）」＝カワカミ荷造数、「歩留まり」＝歩留まり と突き合わせて
+//      一致確認するための値（合計kg数は生産者ぶんも含むため一致確認には使わない・参考値として残す）。
+//   ・列は固定しない：新規取引先が増えて列がズレても、まず「合計kg数」の見出し文字（全角㎏表記・空白ゆれを吸収）で
+//     列を探す（上から10行を走査）。
+//   ・カワカミ荷造数／歩留まりは「合計kg数」の2列右／4列右という相対位置で取る
+//     （合計kg数｜生産者｜カワカミ荷造数｜舟数｜歩留まり｜CS率…の並び固定）。
+//     ★「カワカミ荷造数」という文字列だけで独立に列を探すと、シートの別の場所（無関係な列）にたまたま
+//       同じ文字列があった場合にそちらを拾ってしまい、値が常に0/空になる不具合が2026-08-31に発生したため、
+//       信頼できる「合計kg数」列を基準にした相対位置での取得に変更した。
 //   ・日付はA列（Date型）。テキスト形式で入っていた場合は拾えないので、その時はA列の書式を確認する。
-function readOrderProgressKg_(today){
+function readOrderProgressRow_(today){
+  var out = { totalKg:null, kawakamiKg:null, budomari:null, csRate:null };
   var sh = SpreadsheetApp.openById(CFG.ORDER_SS_ID).getSheetByName(CFG.ORDER_SHEET);
-  if(!sh) return null;
+  if(!sh) return out;
   var v = sh.getDataRange().getValues();
 
-  // ① 「合計kg数」の見出しがある列を探す（全角㎏・半角kg・空白ゆれを吸収）
-  var col = -1;
-  for(var r=0; r<Math.min(v.length,10) && col<0; r++){
+  // ① 「合計kg数」の見出しがある列を探す（見出し文字の完全一致・空白/全角㎏ゆれは吸収）
+  var colTotal=-1;
+  for(var r=0; r<Math.min(v.length,10) && colTotal<0; r++){
     for(var c=0; c<v[r].length; c++){
       var t = String(v[r][c]==null?'':v[r][c]).replace(/\s|　/g,'').replace(/㎏/g,'kg');
-      if(t.indexOf('合計kg数')>=0){ col = c; break; }
+      if(t==='合計kg数'){ colTotal = c; break; }
     }
   }
-  if(col < 0) return null;   // 見出しが見つからない（列名が変わったらここを直す）
+  if(colTotal<0) return out;   // 見出しが見つからない（列名が変わったらここを直す）
+  var colKawakami = colTotal + 2;   // 合計kg数｜生産者｜カワカミ荷造数
+  var colBud      = colTotal + 4;   // 合計kg数｜生産者｜カワカミ荷造数｜舟数｜歩留まり
+  var colCsRate   = colTotal + 5;   // 合計kg数｜生産者｜カワカミ荷造数｜舟数｜歩留まり｜CS率
+  //   ★2026-09-03調査：このCS率は「カワカミ荷造数」欄（ケース単位で手入力する専用の集計列）だけを見ており、
+  //     右側に並ぶ取引先ごとのC/S欄（阪食・小田商店・帯役ワタリ…等）は含まれない。また列の作りとして
+  //     C側は(件数×5kg)+(件数×10kg)ときちんと重み付けされているのに対しS側は件数のまま(×10kgされていない)
+  //     ため、S側の寄与が本来より小さく出る＝発注書側の式自体に集計範囲/単位のズレがある可能性が高い。
+  //     電子黒板の「加工率」は全取引先の当日注文のうち区分がC/Sの物をkgで自動集計した別の計算のため、
+  //     元々一致しない値である旨を、この値を表示する側（電子黒板）で必ず併記すること。発注書側は編集しない。
 
-  // ② 今日の行（A列＝日付）を探して、その列の値を返す
+  // ② 今日の行（A列＝日付）を探して、各列の値を返す
+  //    ※空欄セルはNumber('')が0になってしまうため、明示的にnullで返す（0扱いにすると「確認中」であるべき
+  //      状態が誤って「差0kgあり」等に化けてしまうため）。
+  function num_(val){ if(val===''||val==null) return null; var n=(typeof val==='number')?val:Number(String(val).replace(/[^0-9.\-]/g,'')); return isNaN(n)?null:n; }
   var todayStr = Utilities.formatDate(today, CFG.TZ, 'yyyy/M/d');
   for(var r2=0; r2<v.length; r2++){
     var a = v[r2][0]; // A列
     if(a instanceof Date && Utilities.formatDate(a, CFG.TZ, 'yyyy/M/d') === todayStr){
-      var val = v[r2][col];
-      var n = (typeof val === 'number') ? val : Number(String(val).replace(/[^0-9.\-]/g,''));
-      return isNaN(n) ? null : n;
+      if(colTotal>=0)    out.totalKg    = num_(v[r2][colTotal]);
+      if(colKawakami>=0) out.kawakamiKg = num_(v[r2][colKawakami]);
+      if(colBud>=0)      out.budomari   = num_(v[r2][colBud]);
+      if(colCsRate>=0)   out.csRate     = num_(v[r2][colCsRate]);
+      break;
     }
   }
-  return null;
+  return out;
+}
+// 🔍 進捗差分（取引先ごと）用：発注書「進捗」シートの5行目「荷造数」列を取引先ごとに合算して返す（読み取り専用）。
+//   ・4行目＝取引先名（結合セル運用のため空欄は左の値を引き継ぐ）／5行目＝見出しに「荷造数」を含む列を検出。
+//   ・区分・入数違いの列がまたがっていても、取引先名だけをキーに本日ぶんを合算する（単位＝c/s、金額換算しない）。
+//   ・列は固定しない（見出し文字で検出）。発注書スプレッドシートへは書き込まない。
+function readOrderProgressByClient_(today){
+  var out = {};
+  var sh = SpreadsheetApp.openById(CFG.ORDER_SS_ID).getSheetByName(CFG.ORDER_SHEET);
+  if(!sh) return out;
+  var v = sh.getDataRange().getValues();
+
+  // ① 取引先名の行（4行目）＝A列に西暦が入っている行
+  var custRow = -1;
+  for(var r=0; r<Math.min(v.length,15); r++){ var y=Number(v[r][0]); if(y>=2000 && y<=2100){ custRow=r; break; } }
+  if(custRow<0) return out;
+  var subRow = custRow + 1;   // 5行目＝「荷造数」見出し
+  if(subRow>=v.length) return out;
+
+  // ② 今日の行（A列＝日付）を探す
+  var todayStr = Utilities.formatDate(today, CFG.TZ, 'yyyy/M/d');
+  var todayRow = -1;
+  for(var r2=subRow+1; r2<v.length; r2++){
+    var d = v[r2][0];
+    if(d instanceof Date && Utilities.formatDate(d, CFG.TZ, 'yyyy/M/d') === todayStr){ todayRow = r2; break; }
+  }
+  if(todayRow<0) return out;
+
+  // ③ 「荷造数」列を見出しで検出し、1列左の取引先名（空欄は直前の名前を引き継ぐ）で合算
+  var lastName = '';
+  for(var c=1; c<v[subRow].length; c++){
+    var head = String(v[subRow][c]==null?'':v[subRow][c]).replace(/\s|　/g,'');
+    if(head.indexOf('荷造数') < 0) continue;
+    var nm = String(v[custRow][c-1]==null?'':v[custRow][c-1]).replace(/\n/g,' ').trim();
+    if(nm) lastName = nm;
+    var name = lastName;
+    if(!name) continue;
+    var raw = v[todayRow][c];
+    var n = (typeof raw === 'number') ? raw : Number(String(raw||'').replace(/[^0-9.\-]/g,''));
+    if(!(n > 0)) continue;
+    out[name] = (out[name] || 0) + n;
+  }
+  return out;
+}
+// 🔍 電子黒板の「荷造りCS㎏」用：発注書「進捗」シートの「カワカミ荷造数」欄（結合セル・C/S×重さ別の内訳）から
+//   本日ぶんの実際のCS kgを計算して返す（読み取り専用）。曽我さん依頼＝今まで黒板側の手入力（本日荷造りの
+//   カード入力の積み上げ）に頼っていたCSキロを、進捗シート側の数字に合わせて自動反映する。
+//   ・「カワカミ荷造数」の見出しセル（結合セル。実例＝GK3:GM3）を上から10行走査して探す（列は固定しない）。
+//   ・その1行下＝区分（C/C/S等）、2行下＝重さ（5kg/10kg/10kg等）。
+//   ・区分×重さの各列について「本日の行の値（件数）×重さ」を合計＝これが実際のCS kg
+//     （CS率調査で判明した式 C率=(C5kg数×5+C10kg数×10)/(...) と同じ考え方。ここではCS率ではなくkgそのものを返す）。
+//   ★2026-09-03の初回実装バグ＝「区分が空になったらブロック終了」としていたが、実際は「カワカミ荷造数」の
+//     すぐ右に「阪食」「小田商店」等の別の取引先ブロックが（空列を挟まず）続けて並んでおり、それぞれにも
+//     区分「C」があるため、隣の取引先の列まで巻き込んで合計してしまっていた（実測400kgのはずが1900kgに）。
+//     → ブロックの終わりは「区分の有無」ではなく「見出し行(headRow)に次の取引先名が現れたか」で判定するよう修正
+//     （結合セルなので見出し行はブロックの先頭列だけ値があり、それ以外は空欄になる仕組みを利用）。
+function readKawakamiCsKg_(today){
+  var sh = SpreadsheetApp.openById(CFG.ORDER_SS_ID).getSheetByName(CFG.ORDER_SHEET);
+  if(!sh) return null;
+  var v = sh.getDataRange().getValues();
+
+  // ①「カワカミ荷造数」の見出しセルを探す（結合セルなので値は先頭列だけに入っている）
+  var headRow=-1, startCol=-1;
+  for(var r=0; r<Math.min(v.length,10) && headRow<0; r++){
+    for(var c=0; c<v[r].length; c++){
+      var t = String(v[r][c]==null?'':v[r][c]).replace(/\s|　/g,'');
+      if(t==='カワカミ荷造数'){ headRow=r; startCol=c; break; }
+    }
+  }
+  if(headRow<0) return null;   // 見出しが見つからない（名前が変わったらここを直す）
+  var kubunRow = headRow+1, weightRow = headRow+2;
+  if(weightRow>=v.length) return null;
+
+  // ② 見出し行(headRow)に次の取引先名が現れるまでを「カワカミ荷造数」ブロックとみなして列を集める
+  //   （結合セルの仕組み上、ブロック内はstartCol以外headRowが空欄になる）。重さは「5kg」等の文字列も数値だけ取り出す。
+  var cols = [];
+  for(var c2=startCol; c2<v[kubunRow].length; c2++){
+    if(c2>startCol && String(v[headRow][c2]==null?'':v[headRow][c2]).trim()!==''){ break; }   // 次のブロック（別の取引先）が始まった
+    var kubun = String(v[kubunRow][c2]==null?'':v[kubunRow][c2]).trim();
+    if(!kubun) continue;   // この列だけ区分が無い＝スキップ（ブロックはheadRowの境界まで続ける）
+    var wRaw = v[weightRow][c2];
+    var w = (typeof wRaw==='number') ? wRaw : Number(String(wRaw||'').replace(/[^0-9.]/g,''));
+    if(w>0) cols.push({ c:c2, w:w });
+  }
+  if(!cols.length) return null;
+
+  // ③ 今日の行（A列＝日付）を探して、各列（件数）×重さ の合計を返す
+  var todayStr = Utilities.formatDate(today, CFG.TZ, 'yyyy/M/d');
+  var row=-1;
+  for(var r2=headRow; r2<v.length; r2++){
+    var a=v[r2][0];
+    if(a instanceof Date && Utilities.formatDate(a, CFG.TZ, 'yyyy/M/d')===todayStr){ row=r2; break; }
+  }
+  if(row<0) return null;
+  var kg=0;
+  cols.forEach(function(x){
+    var raw = v[row][x.c];
+    var n = (typeof raw==='number') ? raw : Number(String(raw||'').replace(/[^0-9.\-]/g,''));
+    if(n>0) kg += n * x.w;
+  });
+  return Math.round(kg*10)/10;
+}
+// ★診断専用（読み取りのみ・発注書スプレッドシートは一切変更しない）：
+//   「進捗」シートの合計㎏数セルの数式 SUMPRODUCT(($C$5:$GG$5="荷造数")*N($B$5:$GF$5)*N(C128:GG128)) が
+//   荷造りkg（実績）と合わない原因調査用。エディタでこの関数を選んで▶実行→「表示」→「実行数」（または
+//   「ログ」）でログを確認し、その内容をそのまま貼ってください。
+function debugOrderProgressFormula(){
+  var sh = SpreadsheetApp.openById(CFG.ORDER_SS_ID).getSheetByName(CFG.ORDER_SHEET);
+  if(!sh){ Logger.log('シートが見つかりません: ' + CFG.ORDER_SHEET); return; }
+  var todayStr = Utilities.formatDate(new Date(), CFG.TZ, 'yyyy/M/d');
+
+  // ① A列から「今日」の行番号を探す（式は row128 に固定されているが、今日が本当に128行目か確認する）
+  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  var aCol = sh.getRange(1, 1, lastRow, 1).getValues();
+  var todayRow = -1;
+  for (var i = 0; i < aCol.length; i++) {
+    var a = aCol[i][0];
+    if (a instanceof Date && Utilities.formatDate(a, CFG.TZ, 'yyyy/M/d') === todayStr) { todayRow = i + 1; break; }
+  }
+  Logger.log('今日(' + todayStr + ')の行 = ' + todayRow + '　※数式は128行目に固定なので、ここが128以外なら日付ズレが原因');
+
+  // ② 見出し行（5行目）を1列ずつ見て、「荷造数」列ごとに
+  //    「1つ左のセル（重さ）」「今日の値セル」がSheetsのN()と同じ基準（＝本当に数値型かどうか。
+  //    見た目が"5"でも文字列として書き込まれていればN()は0扱いになる＝過去に電子黒板でも起きた不具合）で読めるか確認する。
+  //    ※ JSのNumber("5")は5に変換できてしまいこの不具合を再現できないため、あえてtypeof==='number'で厳密判定する。
+  var header5 = sh.getRange(5, 1, 1, lastCol).getValues()[0];
+  var todayVals = todayRow > 0 ? sh.getRange(todayRow, 1, 1, lastCol).getValues()[0] : null;
+  var sum = 0, bad = [];
+  var lines = [];
+  for (var c = 2; c < lastCol; c++) { // c=2 → C列（0-index）
+    var headTxt = String(header5[c] == null ? '' : header5[c]).replace(/\s|　/g, '');
+    if (headTxt !== '荷造数') continue;
+    var weightCell = header5[c - 1];                 // 1列左＝重さラベル（例:「2kg」）
+    var weightIsNum = (typeof weightCell === 'number');   // N()と同じ基準：数値型でなければ0扱い
+    var cnt = todayVals ? todayVals[c] : null;
+    var cntIsNum = (typeof cnt === 'number');
+    var w = weightIsNum ? weightCell : 0;
+    var cntNum = cntIsNum ? cnt : 0;
+    var contrib = w * cntNum;
+    sum += contrib;
+    var colLetter = columnToLetter_(c + 1), leftLetter = columnToLetter_(c);
+    lines.push(colLetter + '列(見出し' + leftLetter + '5="' + weightCell + '"[' + (typeof weightCell) + ']→N()=' + w
+      + ') × 本日値"' + cnt + '"[' + (typeof cnt) + ']→N()=' + cntNum + ' = ' + contrib);
+    if (!weightIsNum && weightCell !== '' && weightCell != null) bad.push(leftLetter + '5="' + weightCell + '"（型=' + (typeof weightCell) + '・数値型でないためN()で0扱い）');
+    if (!cntIsNum && cnt !== '' && cnt != null) bad.push(colLetter + (todayRow) + '="' + cnt + '"（型=' + (typeof cnt) + '・数値型でないためN()で0扱い＝文字列として書き込まれている可能性）');
+  }
+  Logger.log('列ごとの内訳:\n' + lines.join('\n'));
+  if (bad.length) Logger.log('★N()で0扱いになっているセル（ここが原因の可能性が高い）:\n' + bad.join('\n'));
+  Logger.log('N()の挙動に厳密にそろえて自前で再計算したSUMPRODUCT = ' + sum);
+
+  // ③ シート上の実際の「合計kg数」「カワカミ荷造数」「歩留まり」セルの値（数式の計算結果そのもの）を見る。
+  //    ★見出しは5行目とは限らない（「荷造数」の重さラベルとは別の行にある）ので、readOrderProgressRow_と
+  //      同じやり方で上から10行を走査して見出しの位置を探す。
+  var head10 = sh.getRange(1, 1, Math.min(10, lastRow), lastCol).getValues();
+  var colTotal = -1, colKawakami = -1, colBud = -1, labelRow = -1;
+  for (var rr = 0; rr < head10.length; rr++) {
+    for (var cc = 0; cc < head10[rr].length; cc++) {
+      var tt = String(head10[rr][cc] == null ? '' : head10[rr][cc]).replace(/\s|　/g, '').replace(/㎏/g, 'kg');
+      if (colTotal < 0    && tt === '合計kg数')      { colTotal = cc;    labelRow = rr + 1; }
+      if (colKawakami < 0 && tt === 'カワカミ荷造数') { colKawakami = cc; labelRow = rr + 1; }
+      if (colBud < 0      && tt === '歩留まり')       { colBud = cc;      labelRow = rr + 1; }
+    }
+  }
+  Logger.log('「合計kg数」等の見出しが見つかった行 = ' + labelRow + '（列インデックス: 合計kg数=' + colTotal + ' カワカミ荷造数=' + colKawakami + ' 歩留まり=' + colBud + '）');
+  if (todayVals) {
+    if (colTotal >= 0)    Logger.log('今日の行の「合計kg数」セル値(実際の数式結果)　= ' + todayVals[colTotal] + '　←自前で再計算した値(' + sum + ')と比べてください');
+    if (colKawakami >= 0) Logger.log('今日の行の「カワカミ荷造数」セル値 = ' + todayVals[colKawakami]);
+    if (colBud >= 0)      Logger.log('今日の行の「歩留まり」セル値 = ' + todayVals[colBud]);
+  }
+
+  // ④ 「カワカミ荷造数」が空だった原因調査（読み取りのみ）：今日の行と前の行で、実際に何が入っているか
+  //    （数式が入っていない／数式はあるが前の行までしかコピーされていない、等）を比べる。
+  if (colKawakami >= 0 && todayRow > 1) {
+    var kCellNow  = sh.getRange(todayRow, colKawakami + 1);
+    var kCellPrev = sh.getRange(todayRow - 1, colKawakami + 1);
+    Logger.log('カワカミ荷造数：今日(' + todayRow + '行目)のセル = "' + kCellNow.getFormula() + '"（数式が空欄なら未入力・未コピー）'
+      + ' / 値=' + JSON.stringify(kCellNow.getValue()));
+    Logger.log('カワカミ荷造数：前日(' + (todayRow - 1) + '行目)のセル = "' + kCellPrev.getFormula() + '"'
+      + ' / 値=' + JSON.stringify(kCellPrev.getValue()));
+  }
+}
+// ★一時調査用（読み取りのみ）：個人注文／その他サンプルの実際のサブ列構成（Mup/S/C/新芽等）を確認する。
+//   曽我さんの依頼「Mup・SとC・新芽を分けて表示」に対応するため、まず実際のシートの列構成を見る。
+function debugKgGroups(){
+  var sh = SpreadsheetApp.openById(CFG.ORDER_SS_ID).getSheetByName('発注書');
+  var v = sh.getDataRange().getValues();
+  var nameRow = -1;
+  for(var r = 0; r < Math.min(v.length, 15); r++){ var y = Number(v[r][1]); if(y>=2000&&y<=2100){ nameRow=r; break; } }
+  var nyusuRow = nameRow + 2, kubunLeft = nameRow + 1, kubunRight = nameRow - 3;
+  var todayStr = Utilities.formatDate(new Date(), CFG.TZ, 'yyyy/M/d');
+  var dateCol = 1, best = -1;
+  for(var c0 = 0; c0 < 6; c0++){ var cnt=0; for(var rr=nameRow+3; rr<v.length; rr++){ if(v[rr][c0] instanceof Date) cnt++; } if(cnt>best){ best=cnt; dateCol=c0; } }
+  var todayRow = -1;
+  for(var r2=nameRow+3; r2<v.length; r2++){ var d=v[r2][dateCol]; if(d instanceof Date && Utilities.formatDate(d, CFG.TZ,'yyyy/M/d')===todayStr){ todayRow=r2; break; } }
+  var lastName = '', lines = [];
+  for(var c = 2; c < v[nameRow].length; c++){
+    var nm = String(v[nameRow][c] || '').replace(/\n/g,' ').trim();
+    if(nm) lastName = nm;
+    if(!/個人注文|その他サンプル/.test(lastName)) continue;
+    var nyusu = v[nyusuRow][c];
+    var flag8 = String(v[kubunLeft][c] || '').trim();
+    var flag4 = String(v[kubunRight][c] || '').trim();
+    var todayVal = todayRow>=0 ? v[todayRow][c] : null;
+    lines.push(columnToLetter_(c+1) + '列: name="' + nm + '"(継承後="' + lastName + '") 4行目="' + flag4 + '" 8行目="' + flag8 + '" 9行目(入数)="' + nyusu + '"[' + (typeof nyusu) + '] 本日値=' + JSON.stringify(todayVal));
+  }
+  Logger.log('nameRow=' + (nameRow+1) + ' todayRow=' + (todayRow+1) + '\n' + lines.join('\n'));
+  return lines;
+}
+function columnToLetter_(col) {
+  var s = '';
+  while (col > 0) { var m = (col - 1) % 26; s = String.fromCharCode(65 + m) + s; col = Math.floor((col - 1) / 26); }
+  return s;
+}
+// 2026-09-03：ログ形式のシート（1行=1件の記録）を、指定した見出し列で新しい順（降順）に並べ替える共通関数。
+//   ・見出し文字で列を探す（列位置がシートによって違ってもそのまま使える）。
+//   ・ヘッダー行(1行目)はそのまま・2行目以降だけを並べ替える。データが1行以下なら何もしない。
+//   ・「本日荷造り状態」「配置設定」「資材データ」のような“1件のJSONを固定セルで持つ”シートには使わない
+//     （並べ替える"行の一覧"という概念が無いため）。「月末棚卸（実数）」のような資材ごとの横持ち表にも使わない。
+//   ・書き込み系の各関数（seisanSave_・hojoSave_・saveNizukuri_・savePosition_・nzMarkNew_・shizaiBackupSave 等）
+//     から、データを書いた直後に呼ぶ。呼ぶたびに全体を並べ替えるので、上書き(upsert)でも追記でも
+//     常に「更新日時が新しい行が上」を保てる。
+function sortSheetDescByHeader_(sh, headerName){
+  try{
+    var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+    if(lastRow < 3 || lastCol < 1) return;   // ヘッダーのみ・空・1行だけなら並べ替え不要
+    var header = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+    var col = -1;
+    for(var c = 0; c < header.length; c++){ if(String(header[c] == null ? '' : header[c]).trim() === headerName){ col = c + 1; break; } }
+    if(col < 0) return;   // 見出しが見つからない（シート形式が違う）ときは何もしない
+    sh.getRange(2, 1, lastRow - 1, lastCol).sort({ column: col, ascending: false });
+  }catch(e){ Logger.log('sortSheetDescByHeader_ failed for ' + (sh && sh.getName && sh.getName()) + ': ' + e); }
 }
 // 力量表スプレッドシート内「実績」シート（日付/荷造り舟数/荷造りkg/歩留まり）から今日の行
 function readJisseki_(today){
-  var ss = SpreadsheetApp.openById(CFG.SKILL_SS_ID);
+  var ss = SpreadsheetApp.openById(CFG.BOARD_DATA_SS_ID);
   var sh = ss.getSheetByName(CFG.JISSEKI_SHEET || '実績');
   if(!sh){ sh = ss.insertSheet(CFG.JISSEKI_SHEET || '実績'); sh.appendRow(['日付','荷造り舟数','荷造りkg','歩留まり(%)']); return { funes:null, kg:null, budomari:null }; }
   var v = sh.getDataRange().getValues();
@@ -512,7 +797,7 @@ function readJisseki_(today){
 //   ※旧「本日荷造り進捗(テスト)」シートとは列構成が違うので、シート名を変えて新規作成にしています（旧シートは削除OK）。
 // ============================================================
 function nzTestSheet_(){
-  var ss = SpreadsheetApp.openById(CFG.SKILL_SS_ID);
+  var ss = SpreadsheetApp.openById(CFG.BOARD_DATA_SS_ID);
   var name = CFG.NZ_TEST_SHEET || '本日荷造り進捗(テスト)';
   var HEAD = ['キー','生産日','納品日','取引先','区分','入数(kg)','荷造数c/s','荷造数kg','更新日時','端末'];
   var sh = ss.getSheetByName(name);
@@ -553,6 +838,7 @@ function saveNizukuri_(p){
     else         { sh.appendRow(row); found = sh.getLastRow(); }
     // B列(生産日)・C列(納品日)を“文字列”に固定（自動で日付型に変換されてTZずれするのを防ぐ）
     var bc = sh.getRange(found, 2, 1, 2); bc.setNumberFormat('@'); bc.setValues([[sdate, ddate]]);
+    sortSheetDescByHeader_(sh, '更新日時');   // 2026-09-03：常に更新日時の新しい順（降順）で並べ直す
     return { ok:true, key:key, savedAt:now, row:found };
   } finally { try{ lock.releaseLock(); }catch(e){} }
 }
@@ -577,7 +863,7 @@ function getNizukuriProgress_(p){
 //   日付は当日。同じ「日付＋AM/PM」の行は上書き（消してから追記）。シートが無ければ自動作成。
 // ============================================================
 function savePosition_(params){
-  var ss = SpreadsheetApp.openById(CFG.SKILL_SS_ID);
+  var ss = SpreadsheetApp.openById(CFG.BOARD_DATA_SS_ID);
   var HEAD = ['日付', 'AM/PM', '場所', '氏名', '保存日時'];
   var sh = ss.getSheetByName(CFG.POSITION_SHEET || 'ポジション履歴');
   if(!sh){ sh = ss.insertSheet(CFG.POSITION_SHEET || 'ポジション履歴'); sh.appendRow(HEAD); }
@@ -606,6 +892,7 @@ function savePosition_(params){
   sh.getRange(1, 1, kept.length, HEAD.length).setValues(kept.map(function(r){
     var a = r.slice(0, HEAD.length); while(a.length < HEAD.length) a.push(''); return a;
   }));
+  sortSheetDescByHeader_(sh, '保存日時');   // 2026-09-03：常に保存日時の新しい順（降順）で並べ直す
   return { ok:true, saved: rows.length, date: today, ampm: ampm };
 }
 
@@ -619,7 +906,7 @@ function savePosition_(params){
 //        → { ok, rev, savedAt } / 競合時 { ok:false, conflict:true, rev, json }（相手の最新も返す＝マージ用）
 // ============================================================
 function haichiCfgSheet_(){
-  var ss = SpreadsheetApp.openById(CFG.SKILL_SS_ID);
+  var ss = SpreadsheetApp.openById(CFG.BOARD_DATA_SS_ID);
   var name = CFG.HAICHI_CFG_SHEET || '配置設定';
   var sh = ss.getSheetByName(name);
   if(!sh){
@@ -676,7 +963,7 @@ function testHaichiCfg(){ Logger.log(JSON.stringify(getHaichiCfg_(), null, 2)); 
 //                                              → { ok, rev, savedAt, json(マージ後の全体) }
 // ============================================================
 function nzStateSheet_(){
-  var ss = SpreadsheetApp.openById(CFG.SKILL_SS_ID);
+  var ss = SpreadsheetApp.openById(CFG.BOARD_DATA_SS_ID);
   var name = CFG.NZ_STATE_SHEET || '本日荷造り状態';
   var sh = ss.getSheetByName(name);
   if(!sh){
@@ -827,11 +1114,154 @@ function getBundle_(params){
     haichiCfg:     safe(function(){ return getHaichiCfg_(); }),
     summary:       safe(function(){ return getSummary_(params); }),
     hojo:          safe(function(){ return hojoGet_({ date: hdate }); }),
-    seisan:        safe(function(){ return seisanGet_({ date: hdate }); })
+    seisan:        safe(function(){ return seisanGet_({ date: hdate }); }),
+    todo:          safe(function(){ return getTodoBoard_(today); })
   };
 }
 // エディタから▶実行して、まとめ取得の中身を確認（各セクションがerror無く返るか）
 function testBundle(){ Logger.log(JSON.stringify(getBundle_({ days: 3 }), null, 2)); }
+
+// ============================================================
+// ⑩ センターTODOマスタ → 電子黒板のTODO表示（2026-09-08 新設。曽我さん依頼）
+//   「センターTODOマスタ」シート（BOARD_DATA_SS_ID内・A=業務/B=頻度、1行目は見出し）に行を足すだけで、
+//   起動時の初回取得と bundle（30秒）経由で電子黒板へ自動反映される（GAS再デプロイ不要＝シート編集だけでOK）。
+//   チェックを入れる／外すたびに「TODO履歴」シートへ1行追記（上書きしない＝そのまま操作履歴になる）。
+//   ・チェック状態は別に持たず、指定日の履歴の中から各業務の最新行（＝先頭。毎回降順ソートしているため）を見て組み立てる。
+//   ・GET  ?type=todoMaster&callback=xxx              → { date, items:[{task,freq}], state:{業務名:true,...} }
+//   ・POST { action:'todoLog', date, task, freq, checked:true/false, by } → 履歴へ1行追記
+// ============================================================
+function todoMasterSheet_(){
+  var ss = SpreadsheetApp.openById(CFG.BOARD_DATA_SS_ID);
+  var name = CFG.TODO_MASTER_SHEET || 'センターTODOマスタ';
+  return ss.getSheetByName(name);   // マスタ未作成なら null（呼び出し側は空リスト扱い）
+}
+function todoMasterList_(){
+  var sh = todoMasterSheet_();
+  if(!sh) return [];
+  var v = sh.getDataRange().getValues();
+  var out = [];
+  for(var r = 1; r < v.length; r++){   // 1行目は見出し（業務/頻度）
+    var task = String(v[r][0] || '').trim();
+    if(!task) continue;
+    out.push({ task: task, freq: String(v[r][1] || '').trim() });
+  }
+  return out;
+}
+function todoLogSheet_(){
+  var ss = SpreadsheetApp.openById(CFG.BOARD_DATA_SS_ID);
+  var name = CFG.TODO_LOG_SHEET || 'TODO履歴';
+  var sh = ss.getSheetByName(name);
+  if(!sh){ sh = ss.insertSheet(name); sh.appendRow(['日付','業務','頻度','操作','更新日時','端末']); }
+  return sh;
+}
+// 指定日（yyyy-MM-dd）の各業務の最新チェック状態を履歴から組み立てる（{業務名:true}＝チェック中のものだけ持つ）
+function getTodoState_(dateStr){
+  var sh = todoLogSheet_();
+  var v = sh.getDataRange().getValues();
+  var state = {}, seen = {};
+  // todoLogAppend_ が毎回「更新日時」降順にソートしているので、各業務は最初に出会った行が最新。
+  for(var r = 1; r < v.length; r++){
+    var d = v[r][0];
+    var dstr = (d instanceof Date) ? Utilities.formatDate(d, CFG.TZ, 'yyyy-MM-dd') : String(d).trim();
+    if(dstr !== dateStr) continue;
+    var task = String(v[r][1] || '').trim();
+    if(!task || seen[task]) continue;
+    seen[task] = true;
+    if(String(v[r][3] || '').trim() === 'チェック') state[task] = true;
+  }
+  return state;
+}
+// ⑪ Googleカレンダー（CFG.TODO_CALENDAR_ID）の指定日の予定から、タイトルにキーワード（既定「センター」）を
+//   含むものだけ拾い、キーワードを取り除いた残りをタスク名としてTODOへ渡す（例：「センター包丁研ぎチェック」→「包丁研ぎチェック」）。
+//   同名タスクが複数の予定にあれば1件にまとめる。カレンダー未共有・権限エラー等は空配列を返すだけ＝他の機能に影響させない。
+function todoCalendarList_(dateStr){
+  try{
+    var day = parseYmd_(dateStr) || new Date();
+    var calId = CFG.TODO_CALENDAR_ID;
+    if(!calId) return [];
+    var cal = CalendarApp.getCalendarById(calId);
+    if(!cal) return [];
+    var start = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+    var end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
+    var events = cal.getEvents(start, end);
+    var keyword = CFG.TODO_CALENDAR_KEYWORD || 'センター';
+    var out = [], seen = {};
+    for(var i = 0; i < events.length; i++){
+      var title = String(events[i].getTitle() || '').trim();
+      if(title.indexOf(keyword) === -1) continue;
+      var task = title.split(keyword).join('').trim();
+      if(!task || seen[task]) continue;
+      seen[task] = true;
+      out.push({ task: task, freq: '予定' });
+    }
+    return out;
+  }catch(err){
+    return [];
+  }
+}
+function getTodoBoard_(dateStr){
+  dateStr = String(dateStr || '').trim() || Utilities.formatDate(new Date(), CFG.TZ, 'yyyy-MM-dd');
+  var items = todoMasterList_();
+  var seen = {};
+  for(var i = 0; i < items.length; i++) seen[items[i].task] = true;
+  var calItems = todoCalendarList_(dateStr);
+  for(var j = 0; j < calItems.length; j++){
+    if(seen[calItems[j].task]) continue;   // マスタと同名タスクがあればマスタ側（頻度ラベル）を優先
+    seen[calItems[j].task] = true;
+    items.push(calItems[j]);
+  }
+  return { date: dateStr, items: items, state: getTodoState_(dateStr) };
+}
+function todoLogAppend_(body){
+  var lock = LockService.getScriptLock();
+  try{ lock.waitLock(15000); }catch(e){ return { ok:false, error:'busy（他の保存処理中）' }; }
+  try{
+    var sh = todoLogSheet_();
+    var date = String(body.date || '').trim() || Utilities.formatDate(new Date(), CFG.TZ, 'yyyy-MM-dd');
+    var task = String(body.task || '').trim();
+    if(!task) return { ok:false, error:'業務名が空です' };
+    var freq = String(body.freq || '').trim();
+    var now  = Utilities.formatDate(new Date(), CFG.TZ, 'yyyy-MM-dd HH:mm:ss');
+    var action = body.checked ? 'チェック' : '解除';
+    sh.appendRow([date, task, freq, action, now, String(body.by || '')]);
+    sortSheetDescByHeader_(sh, '更新日時');
+    return { ok:true, date:date, task:task, action:action };
+  }catch(err){
+    return { ok:false, error:String(err && err.message || err) };
+  }finally{
+    try{ lock.releaseLock(); }catch(e){}
+  }
+}
+// エディタから▶実行して疎通確認（マスタ一覧＋カレンダー予定・本日の状態）
+function testTodo(){
+  var today = Utilities.formatDate(new Date(), CFG.TZ, 'yyyy-MM-dd');
+  Logger.log(JSON.stringify(getTodoBoard_(today), null, 2));
+}
+// エディタから▶実行してカレンダー連携だけ疎通確認（権限が無い場合はここで承認ダイアログが出る）
+function testTodoCalendar(){
+  var today = Utilities.formatDate(new Date(), CFG.TZ, 'yyyy-MM-dd');
+  Logger.log(JSON.stringify(todoCalendarList_(today), null, 2));
+}
+// []（空）になる時の原因切り分け用。どの段階で0件になっているかをログに出す（cal未取得／予定0件／キーワード不一致のどれか）。
+function testTodoCalendarDiag(){
+  var today = Utilities.formatDate(new Date(), CFG.TZ, 'yyyy-MM-dd');
+  var day = parseYmd_(today) || new Date();
+  var calId = CFG.TODO_CALENDAR_ID;
+  Logger.log('calId = ' + calId);
+  var cal = null;
+  try{ cal = CalendarApp.getCalendarById(calId); }catch(e){ Logger.log('getCalendarById error: ' + e); }
+  Logger.log('cal = ' + (cal ? cal.getName() : 'NULL（IDが違う/アクセス権が無い可能性）'));
+  if(!cal) return;
+  var start = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+  var end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
+  Logger.log('range = ' + start + ' 〜 ' + end);
+  var events = [];
+  try{ events = cal.getEvents(start, end); }catch(e){ Logger.log('getEvents error: ' + e); }
+  Logger.log('events.length = ' + events.length);
+  for(var i = 0; i < events.length; i++){
+    Logger.log('  [' + i + '] title=「' + events[i].getTitle() + '」 start=' + events[i].getStartTime());
+  }
+}
 
 // ============================================================
 // ⑤ 配置図の画像を Googleドライブに保存（POST）
@@ -876,7 +1306,7 @@ function savePositionImg_(body){
 //   ・hojoSave（POST）：{ action:'hojoSave', date, fields:[{name,funes},...] } → その日付の行を全入れ替え(upsert)
 // ============================================================
 function hojoSheet_(){
-  var ss = SpreadsheetApp.openById(CFG.SKILL_SS_ID);
+  var ss = SpreadsheetApp.openById(CFG.BOARD_DATA_SS_ID);
   var name = CFG.HOJO_SHEET || '圃場舟数';
   var sh = ss.getSheetByName(name);
   if(!sh){ sh = ss.insertSheet(name); sh.appendRow(['日付','圃場','舟数','更新日時']); }
@@ -979,6 +1409,7 @@ function hojoSave_(body){
     sh.getRange(1, 1, kept.length, HEAD.length).setValues(kept.map(function(r){
       var a = r.slice(0, HEAD.length); while(a.length < HEAD.length) a.push(''); return a;
     }));
+    sortSheetDescByHeader_(sh, '更新日時');   // 2026-09-03：常に更新日時の新しい順（降順）で並べ直す
     return { ok:true, date: date, count: fields.length, total: total };
   }catch(err){
     return { ok:false, error:String(err && err.message || err) };
@@ -992,11 +1423,12 @@ function hojoSave_(body){
 //   列：A=日付 / B=時間帯(AM/PM) / C=生産者 / D=区分(洗い/土) / E=サイズkg / F=舟数 / G=出来高kg / H=更新日時
 //   ・seisanGet（GET, JSONP）：?type=seisanGet&date=yyyy-MM-dd
 //        → { date, list:[{name,ampm,rows:{"区分|サイズ":舟数}}], totalFunes, totalKg }
-//   ・seisanSave（POST）：{ action:'seisanSave', date, list:[{name,ampm,rows:{...}}] } → その日付を全入れ替え(upsert)
+//   ・seisanSave（POST）：{ action:'seisanSave', date, list:[{name,ampm,rows:{...}}], knownKeys:['AM|庄内',...] }
+//        → 生産者(時間帯|名前)単位の行マージ保存（2026-09-08改修。旧仕様＝日付ごと全入れ替えだった）。
 //   ※生産者ごとの記録用。電子黒板の実績数量には含めない。出来高kg＝舟数×サイズkg。
 // ============================================================
 function seisanSheet_(){
-  var ss = SpreadsheetApp.openById(CFG.SKILL_SS_ID);
+  var ss = SpreadsheetApp.openById(CFG.BOARD_DATA_SS_ID);
   var name = CFG.SEISAN_SHEET || '生産者記録';
   var sh = ss.getSheetByName(name);
   if(!sh){ sh = ss.insertSheet(name); sh.appendRow(['日付','時間帯','生産者','区分','サイズkg','舟数','出来高kg','更新日時']); }
@@ -1050,6 +1482,7 @@ function seisanPushToOrder_(date, rowsForDate){
   sh.getRange(1, 1, kept.length, HEAD.length).setValues(kept.map(function(r){
     var a = r.slice(0, HEAD.length); while(a.length < HEAD.length) a.push(''); return a;
   }));
+  sortSheetDescByHeader_(sh, '更新日時');   // 2026-09-03：発注書側の「生産者記録」も更新日時の降順で保つ
 }
 function seisanSave_(body){
   var lock = LockService.getScriptLock();
@@ -1060,15 +1493,36 @@ function seisanSave_(body){
     var date = String(body.date || '').trim() || Utilities.formatDate(new Date(), CFG.TZ, 'yyyy-MM-dd');
     var now  = Utilities.formatDate(new Date(), CFG.TZ, 'yyyy-MM-dd HH:mm');
     var list = (body.list instanceof Array) ? body.list : [];
+    // 2026-09-08：この端末が今回の編集を始める前に知っていた生産者(時間帯|名前)一覧。
+    // 複数PC/タブが同時に生産者タブを触ると、旧仕様（日付ごと全入れ替え）では
+    // 「自分がまだ読み込んでいない、他PCが追加/入力した生産者」の行を保存のたびに消してしまっていた
+    // （例：庄内さんの半端8.5をPC-Aが保存した直後、それを知らないPC-Bが別生産者の保存をすると消える）。
+    // knownKeysに無い＝この端末がまだ知らない生産者＝他PC由来とみなして触らない。
+    var knownKeys = (body.knownKeys instanceof Array) ? body.knownKeys : null;
+
+    var incomingKeySet = {};
+    list.forEach(function(p){
+      var name = String(p.name || '').trim(); if(!name) return;
+      var ampm = (String(p.ampm||'AM').toUpperCase() === 'PM') ? 'PM' : 'AM';
+      incomingKeySet[ampm + '|' + name] = true;
+    });
+    var knownKeySet = null;
+    if(knownKeys){ knownKeySet = {}; knownKeys.forEach(function(k){ knownKeySet[String(k)] = true; }); }
 
     var data = sh.getDataRange().getValues();
     var kept = [ (data.length ? data[0] : HEAD) ];
+    var keptForDate = [];   // ⑥-b 発注書「生産者記録」へ流す、マージ後のこの日付ぶん全行
     for(var i = 1; i < data.length; i++){
       var d0 = data[i][0];
       var dstr = (d0 instanceof Date) ? Utilities.formatDate(d0, CFG.TZ, 'yyyy-MM-dd') : String(d0).trim();
-      if(dstr !== date) kept.push(data[i]);
+      if(dstr !== date){ kept.push(data[i]); continue; }
+      if(!knownKeySet){ continue; }   // knownKeys未送信（旧クライアント/初回保存）＝従来どおりこの日付は全部書き直す
+      var rAmpm = String(data[i][1] || 'AM').trim().toUpperCase(); if(rAmpm !== 'PM') rAmpm = 'AM';
+      var rKey = rAmpm + '|' + String(data[i][2] || '').trim();
+      if(incomingKeySet[rKey]) continue;   // 今回のリストにいる生産者＝このあと新しい行で丸ごと書き直す
+      if(knownKeySet[rKey]) continue;      // この端末が知っていたのに今回リストに無い＝削除された
+      kept.push(data[i]); keptForDate.push(data[i]);   // この端末が知らない生産者＝他PC入力なので保持
     }
-    var newRowsForDate = [];   // ⑥-b 発注書「生産者記録」へそのまま流す分（今回保存した、この日付の行だけ）
     var rowsN = 0, totalFunes = 0, totalKg = 0;
     list.forEach(function(p){
       var name = String(p.name || '').trim(); if(!name) return;
@@ -1081,18 +1535,20 @@ function seisanSave_(body){
         var size = Number(parts[1]) || 0;
         var kg = funes * size;
         var row = [date, ampm, name, grp, size, funes, Math.round(kg*10)/10, now];
-        kept.push(row); newRowsForDate.push(row);
+        kept.push(row); keptForDate.push(row);
         rowsN++; totalFunes += funes; totalKg += kg;
       });
       var pf = Number(p.funes) || 0;   // ③ 収穫舟数（板の舟数へ加算する値）＝区分「収穫舟数」の1行で保存
-      if(pf > 0){ var pfRow = [date, ampm, name, '収穫舟数', 0, pf, 0, now]; kept.push(pfRow); newRowsForDate.push(pfRow); rowsN++; }
+      if(pf > 0){ var pfRow = [date, ampm, name, '収穫舟数', 0, pf, 0, now]; kept.push(pfRow); keptForDate.push(pfRow); rowsN++; }
     });
     sh.clearContents();
     sh.getRange(1, 1, kept.length, HEAD.length).setValues(kept.map(function(r){
       var a = r.slice(0, HEAD.length); while(a.length < HEAD.length) a.push(''); return a;
     }));
+    sortSheetDescByHeader_(sh, '更新日時');   // 2026-09-03：常に更新日時の新しい順（降順）で並べ直す
     // ⑥-b 発注書「生産者記録」（新規シート）へも同じ内容を反映。失敗しても力量表側の保存自体は成立させる。
-    try{ seisanPushToOrder_(date, newRowsForDate); }catch(e2){ Logger.log('seisanPushToOrder_ failed: ' + e2); }
+    // マージ後のこの日付ぶん全行（keptForDate）を渡す＝力量表側と発注書側で内容がズレないように。
+    try{ seisanPushToOrder_(date, keptForDate); }catch(e2){ Logger.log('seisanPushToOrder_ failed: ' + e2); }
     return { ok:true, date: date, rows: rowsN, totalFunes: totalFunes, totalKg: Math.round(totalKg*10)/10 };
   }catch(err){
     return { ok:false, error:String(err && err.message || err) };
@@ -1138,13 +1594,14 @@ function getShift_(params){
   var present = [], off = [], centerRoster = [], support = [];
   var status = {};   // 氏名 → 本日のシフトセル文字（〇/休/午後休/時間指定 等）＝配置図で出勤チェックの横に表示
   var amCount = null, pmCount = null;
-  // 「センター合計人数」または「社員シフト」行より下は、〇でもセンター(現場)には入らない人たち
-  //   （益田・古澤…等の社員シフト表／集計行）。ここから下は出勤者・ロスターに含めない。
-  var centerEnded = false;
+  // 「センター合計人数」行の次〜「社員シフト」行の前＝応援ゾーン（氏名を問わず〇なら現場に入れる）。
+  // 「社員シフト」行より下は、〇でもセンター(現場)には入らない人たち（益田・古澤…等の社員シフト表）。
+  var centerEnded = false;    // 「社員シフト」行を過ぎたら true＝完全に対象外
+  var inSupportZone = false;  // 「センター合計人数」の次〜「社員シフト」の前＝応援ゾーン
   for(var r = pos.row + 1; r < values.length; r++){
-    var rowIsBoundary = values[r].some(function(x){
-      var s = String(x); return s.indexOf('センター合計人数') >= 0 || s.indexOf('社員シフト') >= 0;
-    });
+    var rowText = values[r].join('');
+    var isAggRow = rowText.indexOf('センター合計人数') >= 0;
+    var isStaffRow = rowText.indexOf('社員シフト') >= 0;
     // 集計行「午前人数」「午後人数」を拾って本日列の値を採用（センター人数 AM/PM 用。境界より下でも拾う）
     for(var c = 0; c < values[r].length; c++){
       var label = String(values[r][c] || '').replace(/\s/g, '');
@@ -1152,14 +1609,19 @@ function getShift_(params){
       if(label.indexOf('午前人数') >= 0){ var av = Number(values[r][pos.col]); if(!isNaN(av)) amCount = av; }
       if(label.indexOf('午後人数') >= 0){ var pv = Number(values[r][pos.col]); if(!isNaN(pv)) pmCount = pv; }
     }
-    if(rowIsBoundary) centerEnded = true;   // この行以降はセンターメンバーに含めない
     var nm = String(values[r][nameCol] || '').trim();
     var cell = String(values[r][pos.col] || '').trim();
-    // ★ 応援（34行目〜の「応援①」等）＝「センター合計人数」より下だが、本日〇なら現場に入れる。
+    if(isStaffRow){ centerEnded = true; inSupportZone = false; continue; }   // ここから下は完全に対象外
+    if(isAggRow){ inSupportZone = true; continue; }   // 合計行自体は人ではないのでスキップ、次行から応援ゾーン
+    // ★ 応援（「センター合計人数」の次の行〜「社員シフト」の前＝例：木ノ下・梅野・応援①等）＝本日〇なら現場に入れる。
     //   力量表には登録せず support として板へ渡し、板側でフレッシュ扱い＝基本「はつり」へ自動配置。
-    //   氏名が「応援」で始まる行だけを対象にする（集計行に紛れないよう限定）。
-    if(/^応援/.test(nm)){
-      if(cell === CFG.MARK_PRESENT){ present.push(nm); support.push(nm); status[nm] = cell; }
+    //   氏名パターンでは絞らない（実名の応援枠も拾えるように。行の「位置」だけで判定する）。
+    if(inSupportZone){
+      var supAgg = !nm || /人数|合計|社員|パート|アルバイト|実習生|営業|経理|監査|給料|会議|予算|休み|役員/.test(nm);
+      if(!supAgg){
+        status[nm] = cell;
+        if(cell && cell !== '休'){ present.push(nm); support.push(nm); }   // 〇に限らず時間指定・午後休なども出勤扱い
+      }
       continue;
     }
     var isAggregate = !nm || /人数|合計|社員|パート|アルバイト|実習生|応援|営業|経理|監査|給料|会議|予算|休み|役員/.test(nm);
@@ -1466,8 +1928,8 @@ function getGloveUsage_(params){
     }
     if(!dayCols.length) continue;
 
-    var acc = {};   // date → {total, noSize, bySize}
-    dayCols.forEach(function(dc){ acc[dc.date] = { total:0, noSize:0, bySize:{} }; });
+    var acc = {};   // date → {total, noSize, bySize, names}
+    dayCols.forEach(function(dc){ acc[dc.date] = { total:0, noSize:0, bySize:{}, names:[] }; });
 
     var centerEnded = false;
     for(var r2 = info.headerRow + 1; r2 < info.values.length; r2++){
@@ -1485,13 +1947,14 @@ function getGloveUsage_(params){
         if(!cell || cell === '休') return;                    // 休・空欄は出勤に数えない
         var a = acc[dc.date];
         a.total++;
+        a.names.push(nm);   // 出勤者の名前（資材アプリ側の「人のリスト」と突き合わせてサイズを判定するために渡す）
         if(size) a.bySize[size] = (a.bySize[size] || 0) + 1;
         else a.noSize++;
       });
     }
     dayCols.forEach(function(dc){
       var a = acc[dc.date];
-      if(a.total > 0) days.push({ date:dc.date, total:a.total, bySize:a.bySize, noSize:a.noSize });
+      if(a.total > 0) days.push({ date:dc.date, total:a.total, bySize:a.bySize, noSize:a.noSize, names:a.names });
     });
   }
 
@@ -1708,8 +2171,19 @@ function getNizukuri_(params){
   // 取引先の列メタを作成（集計・ﾜﾝﾍﾞｼﾞは除外）。区分は取引先名だけの控えbyNameも作る
   //   ④ 個人注文／その他サンプルは kg単価（C/Sではない）。7行目で名前がある列＋その右の空白サブ列（Mup/C/S/新芽…）を
   //      同じ名前でまとめ、日ごとに合計kgを1行で表示する（入数=1なので日々の値がそのままkg）。
+  //   2026-09-03：曽我さん依頼で「合計kg」1本→「Mup」「SとC」「新芽」の3本に分けて表示するよう変更。
+  //     実際の列構成（発注書「発注書」シート・現時点）＝個人注文(CW:CY)＝Mup/C/S、その他サンプル(CZ:DC)＝Mup/C/S/新芽。
+  //     区分は8行目のラベル（Mup/C/S/新芽）で判定し、個人注文・その他サンプルの区別なくラベルだけで合算する
+  //     （C とS は「SとC」1本にまとめる。ラベルがそれ以外/空のときはグループ名のまま集計＝将来の列追加にも対応）。
   var cols = [], byName = {}, lastName = '';
   var KG_GROUP_RE = /個人注文|その他サンプル/;   // ④ kg集計する特別グループ（除外せず、複数サブ列を合計）
+  function kgSubName_(label, groupName){
+    var t = String(label || '').trim();
+    if(t === 'Mup') return 'Mup';
+    if(t === 'C' || t === 'S') return 'SとC';
+    if(t === '新芽') return '新芽';
+    return groupName;   // 想定外のラベル・空欄はグループ名のまま（データが消えないようにする保険）
+  }
   for(var c = 2; c < v[nameRow].length; c++){
     var nm = String(v[nameRow][c] || '').replace(/\n/g,' ').trim();
     if(nm) lastName = nm;
@@ -1722,7 +2196,7 @@ function getNizukuri_(params){
     var flag8 = String(v[kubunLeft][c] || '').trim();
     var flag4 = String(v[kubunRight][c] || '').trim();          // 発注書「4行目」＝区分（洗い/土付き等の商品形式を全列ここに集約した）
     if(flag8 === 'ﾜﾝﾍﾞｼﾞ' || flag8 === 'ワンベジ' || flag4 === 'ﾜﾝﾍﾞｼﾞ' || flag4 === 'ワンベジ') continue;   // ﾜﾝﾍﾞｼﾞ列は出さない
-    if(isKg){ cols.push({ c:c, name:name, nyusu:nyusu, kubun:'', kgUnit:true }); continue; }   // ④ kg列＝区分なし・kg単位（名前ごとに日別合計）
+    if(isKg){ cols.push({ c:c, name:kgSubName_(flag8, name), nyusu:nyusu, kubun:'', kgUnit:true }); continue; }   // ④ kg列＝区分なし・kg単位（8行目ラベル＝Mup/SとC/新芽ごとに日別合計）
     // ② 区分は必ず4行目から取る（従来のC〜Q列=8行目の分岐は廃止）。4行目の商品形式をそのまま取引先の横に表示。
     var kubun = flag4;
     if(kubun === '土なし') kubun = '洗い';
@@ -1738,12 +2212,26 @@ function getNizukuri_(params){
   var wd = { '1':'月','2':'火','3':'水','4':'木','5':'金','6':'土','7':'日' };
   var notes = ['本日','翌日','翌々日'];
 
+  // ⑤ 2026-10-03追加（曽我さん依頼）：発注書の数字の文字色で状態を自動判定（赤＝未確定／黒・青＝確定）。
+  //   読み取りのみ（getFontColorObjects）。行ごとにメモ化。読めなければ色なし＝従来どおり手動の状態。
+  //   ⚠条件付き書式・背景色は読めない（素の文字色だけ）。診断＝?type=debugColors&date=
+  var colorMemo = {};
+  function colorRow_(row){
+    if(row < 0) return [];
+    if(!colorMemo.hasOwnProperty(row)){
+      try{ colorMemo[row] = sh.getRange(row + 1, 1, 1, sh.getLastColumn()).getFontColorObjects()[0].map(nzFontColorHex_); }
+      catch(e){ colorMemo[row] = []; }
+    }
+    return colorMemo[row];
+  }
+
   function makeDay(dt, note){
     var dstr = Utilities.formatDate(dt, CFG.TZ, 'yyyy/M/d');
     var row  = (dstr in rowByDate) ? rowByDate[dstr] : -1;
     var orders = [];
     if(row >= 0){
-      var kgAgg = {}, kgOrder = [];   // ④ 個人注文／その他サンプル：名前ごとに日別kgを合計して1行に
+      var colors = colorRow_(row);
+      var kgAgg = {}, kgOrder = [];   // ④ 個人注文／その他サンプル：Mup/SとC/新芽ごとに日別kgを合計して1行に（2026-09-03〜）
       cols.forEach(function(col){
         var qty = Number(v[row][col.c]) || 0;
         if(qty <= 0) return;
@@ -1755,7 +2243,9 @@ function getNizukuri_(params){
         var name = col.name;
         var ov = (CFG.NAME_OVERRIDE || {})[name + '|' + col.nyusu]; if(ov) name = ov;
         var bunrui = col.kubun || byName[col.name] || (CFG.DEFAULT_BUNRUI || '');
-        orders.push({ cust:name, bunrui:bunrui, nyusu:col.nyusu, qty:qty, kg:Math.round(qty*col.nyusu) });
+        var hex = colors[col.c] || '';
+        orders.push({ cust:name, bunrui:bunrui, nyusu:col.nyusu, qty:qty, kg:Math.round(qty*col.nyusu),
+                      color: hex ? nzColorClass_(hex) : '', colorHex: hex });   // ⑤ red/blue/black（''＝読めず）
       });
       kgOrder.forEach(function(nm){
         var kgv = kgAgg[nm]; if(!(kgv > 0)) return;
@@ -1789,8 +2279,46 @@ function getNizukuri_(params){
       if(!exists) days.push(makeDay(dt2, '指定日'));
     }
   }
+  if(params.noMarkNew) return { days: days, cols: cols.length };   // ⑤ 診断用（debugColors）はスナップショットを触らない
   nzMarkNew_(days);   // ③ 発注書の前回値と比べ、追加・数量変更された注文だけ isNew=true を付ける（全PC共通）
   return { days: days, cols: cols.length };
+}
+
+// ⑤ 文字色オブジェクト→'#rrggbb'（テーマ色はスプレッドシートのテーマから実際の色に直す。分からなければ''）
+var _NZ_THEME_MEMO_ = null;
+function nzFontColorHex_(c){
+  try{
+    if(!c) return '';
+    var t = c.getColorType();
+    if(t === SpreadsheetApp.ColorType.RGB) return c.asRgbColor().asHexString();
+    if(t === SpreadsheetApp.ColorType.THEME){
+      if(!_NZ_THEME_MEMO_) _NZ_THEME_MEMO_ = SpreadsheetApp.openById(CFG.ORDER_SS_ID).getSpreadsheetTheme();
+      return _NZ_THEME_MEMO_.getConcreteColor(c.asThemeColor().getThemeColorType()).asRgbColor().asHexString();
+    }
+  }catch(e){}
+  return '';
+}
+// '#rrggbb' → 'red'（赤系）／'blue'（青系）／'black'（それ以外＝黒・灰色・既定色）
+//   ⚠広島の実データでは黒が '#ff000000'（先頭2桁＝不透明度の8桁）で返った。8桁は先頭2桁を捨てる（そのまま読むと黒が赤に化ける）。
+function nzColorClass_(hex){
+  var s = String(hex || '').replace(/^#/, '');
+  if(/^[0-9a-f]{8}$/i.test(s)) s = s.slice(2);
+  var m = s.match(/^([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if(!m) return 'black';
+  var r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+  if(r >= 140 && r - g >= 60 && r - b >= 60) return 'red';
+  if(b >= 120 && b - r >= 60 && b - g >= 20) return 'blue';
+  return 'black';
+}
+// ⑤ 診断用：?type=debugColors&date=2026-10-03（省略＝今日）→ 注文ごとの文字色と判定。読み取りのみ。
+function debugColors_(params){
+  params = params || {};
+  var r = getNizukuri_({ days: 1, date: params.date, noMarkNew: true });
+  if(r.error) return r;
+  var want = params.date ? Utilities.formatDate(parseParamDate_(params.date), CFG.TZ, 'yyyy/M/d') : r.days[0].date;
+  var day = r.days.filter(function(d){ return d.date === want; })[0] || r.days[0];
+  return { date: day.date, orders: day.orders.map(function(o){
+    return { cust:o.cust, bunrui:o.bunrui, nyusu:o.nyusu, qty:o.qty, colorHex:o.colorHex, color:o.color }; }) };
 }
 
 // ============================================================
@@ -1806,7 +2334,7 @@ function nzMarkNew_(days){
   var lock = LockService.getScriptLock();
   try{ lock.waitLock(15000); }catch(e){ return; }   // 取れなければNEW更新は諦める（表示は落とさない）
   try{
-    var ss = SpreadsheetApp.openById(CFG.SKILL_SS_ID);
+    var ss = SpreadsheetApp.openById(CFG.BOARD_DATA_SS_ID);
     var name = CFG.NZ_SNAP_SHEET || '荷造りスナップショット';
     var sh = ss.getSheetByName(name);
     var firstEver = false;
@@ -1857,6 +2385,7 @@ function nzMarkNew_(days){
     });
     sh.clearContents();
     sh.getRange(1, 1, out.length, 4).setValues(out);
+    sortSheetDescByHeader_(sh, '変更検知日時');   // 2026-09-03：常に変更検知日時の新しい順（降順）で並べ直す
   }catch(err){
     // 失敗してもNEW無しで表示は続ける
   }finally{
@@ -2206,4 +2735,184 @@ function debugTop_(){
     skill_力量表: top(CFG.SKILL_SS_ID, CFG.SKILL_SHEET),
     shift: top(CFG.SHIFT_SS_ID, shiftSheetName_(new Date()))
   };
+}
+
+// ============================================================
+// 2026-09-03：電子黒板・資材アプリの状態/バックアップ用シートを「力量表」スプレッドシートから
+// 新しい専用スプレッドシート（CFG.BOARD_DATA_SS_ID＝【センターDX】電子黒板データ保管庫）へ分離。
+//   ★力量表SSに残すのは「力量表」「配置優先」の2枚だけ。それ以外（下のNAMES）は今後すべて新SSに書く。
+//   ・このコードは"これから書く先"を切り替えるだけなので、力量表SSに残っている古いシートの中身は
+//     何も変更・削除しない（そのまま残る＝過去ログとして参照可能）。
+//   ・「本日荷造り状態」「配置設定」「資材データ」は"今日時点の生きた状態"を1個のJSONで持っているため、
+//     何もしないと切替直後だけ空（未確定/初期状態）に見えてしまう。これを防ぐため、
+//     力量表SS側に残っている最新の内容を新SSへ一度だけコピーする。
+//   ・実行方法＝Apps Scriptエディタでこの関数を選んで▶実行を1回だけ。実行後にログ（表示→ログ）で
+//     各シートが「コピー済み／既にデータあり(スキップ)／元シート無し」のどれだったか確認できる。
+// ============================================================
+function migrateBoardDataToNewSpreadsheet(){
+  var oldSs = SpreadsheetApp.openById(CFG.SKILL_SS_ID);
+  var newSs = SpreadsheetApp.openById(CFG.BOARD_DATA_SS_ID);
+  var log = [];
+
+  // ①行データ系シート：力量表SS側にあって新SS側にまだ無い行だけをマージで追加する（行の内容が完全一致する
+  //   ものは重複させない）。
+  //   ★2026-09-03当初は「新SS側に1行でもあれば全部スキップ」という単純な判定だったため、GAS再デプロイ後の
+  //     通常運用で新SS側に当日分の行が書き込まれてしまうと、力量表側に残っている過去分が二度とコピー
+  //     されない不具合があった（実際に発生：圃場舟数・生産者記録・荷造りスナップショットが本日分だけに
+  //     なっていた）。→ 行ごとに内容を比較し、新SS側に無い行だけ追加するマージ方式に修正。
+  //   ・再実行しても安全＝前回追加した行はすでに新SS側にあるので「追加分無し」になるだけ（重複しない）。
+  var ROW_SHEETS = [
+    { name: CFG.JISSEKI_SHEET       || '実績',                  header: null },
+    { name: CFG.HOJO_SHEET          || '圃場舟数',               header: '更新日時' },
+    { name: CFG.SEISAN_SHEET        || '生産者記録',             header: '更新日時' },
+    { name: CFG.NZ_SNAP_SHEET       || '荷造りスナップショット', header: '変更検知日時' },
+    { name: CFG.POSITION_SHEET      || 'ポジション履歴',         header: '保存日時' },
+    { name: CFG.NZ_TEST_SHEET       || '本日荷造り進捗(テスト)', header: '更新日時' },
+    { name: CFG.SHIZAI_BACKUP_SHEET || '資材バックアップ',       header: '保存日時' },
+    { name: CFG.SHIZAI_STOCK_SHEET  || '月末棚卸（実数）',       header: null }
+  ];
+  ROW_SHEETS.forEach(function(t){
+    var name = t.name;
+    var oldSh = oldSs.getSheetByName(name);
+    if(!oldSh){ log.push(name + '：力量表SS側に元シート無し（対応不要）'); return; }
+    var oldV = oldSh.getDataRange().getValues();
+    if(oldV.length <= 1){ log.push(name + '：力量表SS側にデータ無し（対応不要）'); return; }
+    var header = oldV[0];
+    var newSh = newSs.getSheetByName(name);
+    if(!newSh){ newSh = newSs.insertSheet(name); newSh.appendRow(header); }
+    var newV = newSh.getDataRange().getValues();
+    var existing = {};
+    for(var i = 1; i < newV.length; i++){ existing[JSON.stringify(newV[i])] = true; }
+    var toAdd = [];
+    for(var j = 1; j < oldV.length; j++){
+      var key = JSON.stringify(oldV[j]);
+      if(!existing[key]) toAdd.push(oldV[j]);
+    }
+    if(toAdd.length === 0){ log.push(name + '：新SS側に既に同じ内容あり（追加分無し）'); return; }
+    var merged = [ newV.length ? newV[0] : header ].concat(toAdd, newV.slice(1));
+    var width = merged[0].length;
+    newSh.clear();
+    newSh.getRange(1, 1, merged.length, width).setValues(merged.map(function(r){
+      var a = r.slice(0, width); while(a.length < width) a.push(''); return a;
+    }));
+    if(t.header) sortSheetDescByHeader_(newSh, t.header);
+    log.push(name + '：力量表SS側から' + toAdd.length + '行を追加しました（新SS内合計' + (merged.length - 1) + '行）');
+  });
+
+  // ②「今日時点の状態」を1個のJSONで持つシート（rev/savedAt/savedBy/json の4行構成）
+  var STATE_SHEETS = [
+    CFG.HAICHI_CFG_SHEET || '配置設定',
+    CFG.NZ_STATE_SHEET   || '本日荷造り状態',
+    CFG.SHIZAI_SHEET     || '資材データ'
+  ];
+  STATE_SHEETS.forEach(function(name){
+    var oldSh = oldSs.getSheetByName(name);
+    if(!oldSh){ log.push(name + '：元シート無し（未使用のためスキップ）'); return; }
+    var newSh = newSs.getSheetByName(name);
+    if(newSh && String(newSh.getRange('B4').getValue()||'') !== ''){ log.push(name + '：新SSに既にデータあり（スキップ）'); return; }
+    var v = oldSh.getRange(1,1,Math.max(oldSh.getLastRow(),4), Math.max(oldSh.getLastColumn(),2)).getValues();
+    if(!newSh) newSh = newSs.insertSheet(name);
+    newSh.getRange(1,1,v.length,v[0].length).setValues(v);
+    log.push(name + '：現在の状態をコピーしました（rev=' + v[0][1] + '）');
+  });
+
+  Logger.log(log.join('\n'));
+  return log;
+}
+
+// ============================================================
+// 2026-09-03：既存データを一度だけ「更新日時（相当の列）」の降順に並べ替える（曽我さん依頼③）。
+//   ・今後の新規保存は各保存関数に組み込んだ sortSheetDescByHeader_ で自動的に降順を維持する。
+//   ・この関数は、それより前に書き込まれた“既に並び順がバラバラな”データを1回だけ整える。
+//   ・実行方法＝Apps Scriptエディタでこの関数を選んで▶実行を1回だけ。
+// ============================================================
+function sortAllBoardDataSheetsOnce(){
+  var boardSs = SpreadsheetApp.openById(CFG.BOARD_DATA_SS_ID);
+  var TARGETS = [
+    { sheet: CFG.HOJO_SHEET          || '圃場舟数',              header: '更新日時' },
+    { sheet: CFG.SEISAN_SHEET        || '生産者記録',            header: '更新日時' },
+    { sheet: CFG.NZ_SNAP_SHEET       || '荷造りスナップショット', header: '変更検知日時' },
+    { sheet: CFG.POSITION_SHEET      || 'ポジション履歴',        header: '保存日時' },
+    { sheet: CFG.NZ_TEST_SHEET       || '本日荷造り進捗(テスト)', header: '更新日時' },
+    { sheet: CFG.SHIZAI_BACKUP_SHEET || '資材バックアップ',      header: '保存日時' }
+  ];
+  var log = [];
+  TARGETS.forEach(function(t){
+    var sh = boardSs.getSheetByName(t.sheet);
+    if(!sh){ log.push(t.sheet + '：シート無し（スキップ）'); return; }
+    sortSheetDescByHeader_(sh, t.header);
+    log.push(t.sheet + '：並べ替えました（' + sh.getLastRow() + '行）');
+  });
+  // 発注書側の「生産者記録」（seisanOrderSheet_）も同様に整える。発注書スプレッドシートの他のシートには一切触れない。
+  try{
+    var orderSh = seisanOrderSheet_();
+    sortSheetDescByHeader_(orderSh, '更新日時');
+    log.push('発注書「生産者記録」：並べ替えました（' + orderSh.getLastRow() + '行）');
+  }catch(e){ log.push('発注書「生産者記録」：エラー ' + e); }
+  Logger.log(log.join('\n'));
+  return log;
+}
+
+// ============================================================
+// 2026-09-03：移行が完了した後、センター力量表スプレッドシートに残っている“もう使っていない”
+// バックアップ/状態用シートを削除する（曽我さん依頼①）。
+//   ★安全策＝各シートについて「新しいスプレッドシート（BOARD_DATA_SS_ID）側に十分なデータが
+//     コピーされていること」を確認できたものだけ削除する。確認できないシートは削除せずログに残す。
+//   ・「力量表」「配置優先」の2枚は削除対象に含まれていない（力量表本体と一体で使うため）。
+//   ・実行方法＝migrateBoardDataToNewSpreadsheet を実行済みであることを確認してから、
+//     Apps Scriptエディタでこの関数を選んで▶実行を1回だけ。
+// ============================================================
+function cleanupSkillSpreadsheet(){
+  var oldSs = SpreadsheetApp.openById(CFG.SKILL_SS_ID);
+  var newSs = SpreadsheetApp.openById(CFG.BOARD_DATA_SS_ID);
+  var log = [];
+
+  // ①行データ系シート：新SS側に2行以上（ヘッダー＋データ1行以上）あれば移行済みとみなす
+  var ROW_SHEETS = [
+    CFG.JISSEKI_SHEET   || '実績',
+    CFG.HOJO_SHEET      || '圃場舟数',
+    CFG.SEISAN_SHEET    || '生産者記録',
+    CFG.NZ_SNAP_SHEET   || '荷造りスナップショット',
+    CFG.POSITION_SHEET  || 'ポジション履歴',
+    CFG.NZ_TEST_SHEET   || '本日荷造り進捗(テスト)',
+    CFG.SHIZAI_BACKUP_SHEET || '資材バックアップ',
+    CFG.SHIZAI_STOCK_SHEET  || '月末棚卸（実数）'
+  ];
+  ROW_SHEETS.forEach(function(name){
+    var oldSh = oldSs.getSheetByName(name);
+    if(!oldSh){ log.push(name + '：力量表SSに元々無い（対応不要）'); return; }
+    var newSh = newSs.getSheetByName(name);
+    var oldRows = oldSh.getLastRow();
+    if(oldRows <= 1){ oldSs.deleteSheet(oldSh); log.push(name + '：力量表SS側は元々データ無し→削除OK'); return; }
+    if(!newSh || newSh.getLastRow() < oldRows){
+      log.push(name + '：★削除せずスキップ（新SS側の行数(' + (newSh ? newSh.getLastRow() : 0) + ')が力量表SS側(' + oldRows + ')未満＝移行未確認）');
+      return;
+    }
+    oldSs.deleteSheet(oldSh);
+    log.push(name + '：新SS側に' + newSh.getLastRow() + '行あるのを確認→力量表SSから削除しました');
+  });
+
+  // ②「今日時点の状態」を1個のJSONで持つシート：新SS側のjson(B4)が空でなければ移行済みとみなす
+  var STATE_SHEETS = [
+    CFG.HAICHI_CFG_SHEET || '配置設定',
+    CFG.NZ_STATE_SHEET   || '本日荷造り状態',
+    CFG.SHIZAI_SHEET     || '資材データ'
+  ];
+  STATE_SHEETS.forEach(function(name){
+    var oldSh = oldSs.getSheetByName(name);
+    if(!oldSh){ log.push(name + '：力量表SSに元々無い（対応不要）'); return; }
+    var newSh = newSs.getSheetByName(name);
+    var oldJson = String(oldSh.getRange('B4').getValue() || '');
+    if(oldJson === ''){ oldSs.deleteSheet(oldSh); log.push(name + '：力量表SS側は元々データ無し→削除OK'); return; }
+    var newJson = newSh ? String(newSh.getRange('B4').getValue() || '') : '';
+    if(newJson === ''){
+      log.push(name + '：★削除せずスキップ（新SS側にまだ状態が無い＝移行未確認。migrateBoardDataToNewSpreadsheet を先に実行してください）');
+      return;
+    }
+    oldSs.deleteSheet(oldSh);
+    log.push(name + '：新SS側に状態があるのを確認→力量表SSから削除しました');
+  });
+
+  Logger.log(log.join('\n'));
+  return log;
 }
