@@ -1733,29 +1733,41 @@
     //   比較に入っていなかった（曽我さん指摘）。→ 日付を絞らず全ての発注について「本日作った分
     //   （nzMadeToday＝生産日=今日）」を集計する（nzRowKeyは発注ごとの本来の納品日を含むキーなので、
     //   どの納品日向けの作りだめでも正しく本日分だけが拾える）。
+    // ★2026-10-05（10/3土曜18時「一致しているのに差分が消えない」の修正。曽我さん依頼）：
+    //   (a) 以前は NZ_ORDERS（＝そのPCで表示中の日数ぶんの発注だけ）を回していたため、表示範囲の外の発注
+    //       （例：土曜に作った月曜・火曜向け）の本日作った分が数えられず、PCによって差分が残り続けた。
+    //       → 生産ログ NZS.prod を直接見て「生産日＝今日」の分を全部数える（キー＝納品日|取引先|区分|入数）。
+    //   (b) 黒板「ドンキ ｼﾝｶﾞﾎﾟｰﾙ」⇔進捗「ｼﾝｶﾞﾎﾟｰﾙ」のように表記が違うと別の行になっていた
+    //       → 全角半角・空白・先頭の「ドンキ」をそろえた名前で突き合わせる（表示は進捗シートの名前）。
+    //   (c) 進捗シートの取引先ごと「荷造数」にはC/S区分が入っていない → C/S区分は比較から外す。
+    var td = nzTodayStr();
     var madeByClient = {};
-    NZ_ORDERS.forEach(function(o){
-      var made = nzMadeToday(nzRowKey(o));
+    Object.keys(NZS.prod || {}).forEach(function(k){
+      var made = Number(nzProdOf(k)[td]) || 0;
       if(!made) return;
+      var p = String(k).split('|');
+      var o = { cust: p[1] || '', bunrui: p[2] || '' };
       if(o.cust === 'SとC' || o.cust === '新芽') return;   // 個人販売のS/C・新芽は進捗シート側に対応行が無く比較できない（荷造りkgはMup同士で比較するため不要。曽我さん指摘）
-      var key = nzProgressVacKey_(o) || NZ_PROGRESS_CLIENT_ALIAS_[o.cust] || o.cust;
+      if(nzIsCS(o)) return;                                // (c)
+      var key = nzProgressVacKey_(o) || NZ_PROGRESS_CLIENT_ALIAS_[o.cust] || NZ_PROGRESS_CLIENT_ALIAS_[o.cust.replace(/[\s　]/g,'')] || o.cust;
+      if(key === 'Mup') key = '個人＋サンプル';
       madeByClient[key] = (madeByClient[key]||0) + made;
     });
-    // ② 個人注文／その他サンプルの「Mup」は、発注書「進捗」シートの「個人＋サンプル」行と対応する
-    //   （キー名が違うだけで同じものを指す）ので、比較用に1本の行名にそろえる。
-    if(madeByClient['Mup']){ madeByClient['個人＋サンプル（Mup）'] = madeByClient['Mup']; delete madeByClient['Mup']; }
     var progress = {};
     Object.keys(ORDER_PROGRESS_BY_CLIENT || {}).forEach(function(k){
       if(k === 'SとC' || k === '新芽') return;   // 同上：S/C・新芽は比較対象外
-      progress[(k === '個人＋サンプル') ? '個人＋サンプル（Mup）' : k] = ORDER_PROGRESS_BY_CLIENT[k] || 0;
+      progress[k] = ORDER_PROGRESS_BY_CLIENT[k] || 0;
     });
-    var names = {};
-    Object.keys(madeByClient).forEach(function(k){ names[k]=1; });
-    Object.keys(progress).forEach(function(k){ names[k]=1; });
-    return Object.keys(names).map(function(name){
-      var made = madeByClient[name] || 0;
-      var order = progress[name] || 0;
-      return { cust:name, made:made, order:order, diff:made-order };
+    // (b) 突き合わせ用の名前：NFKC・空白除去・先頭「ドンキ」除去。表示は進捗シート側の名前を優先。
+    function ck(s){ s = String(s||''); try{ s = s.normalize('NFKC'); }catch(e){} return s.replace(/[\s　]/g,'').replace(/^ドンキ/,''); }
+    var rows = {};
+    function row(name){ var k = ck(name); return rows[k] || (rows[k] = { cust:name, made:0, order:0 }); }
+    Object.keys(progress).forEach(function(k){ var r = row(k); r.cust = k; r.order += progress[k]; });
+    Object.keys(madeByClient).forEach(function(k){ row(k).made += madeByClient[k]; });
+    return Object.keys(rows).map(function(k){
+      var r = rows[k];
+      if(r.cust === '個人＋サンプル') r.cust = '個人＋サンプル（Mup）';   // ② Mup＝進捗シート「個人＋サンプル」
+      return { cust:r.cust, made:r.made, order:r.order, diff:r.made-r.order };
     }).sort(function(a,b){ return Math.abs(b.diff)-Math.abs(a.diff); });
   }
   function renderClientDiff_(){

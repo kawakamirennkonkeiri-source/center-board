@@ -215,9 +215,9 @@
   </div>
 
   <div class="legend">
-    <div><span class="dot" style="background:var(--green)"></span>配置優先の番号あり</div>
-    <div><span class="dot" style="background:var(--blue)"></span>番号なし（手動で配置）</div>
-    <div><span class="dot" style="background:var(--red)"></span>× 不可（自動配置の対象外）</div>
+    <div><span class="dot" style="background:var(--blue)"></span>社員（力量表の区分＝社員）</div>
+    <div><span class="dot" style="background:var(--green)"></span>社員以外（実習生・アルバイト・応援など）</div>
+    <div><span class="dot" style="background:var(--red)"></span>× 不可の工程に置かれている</div>
     <div>⭐ 固定（自動配置で動かさない）</div>
     <div>白丸＝ビス置き場（未配置プール）　赤丸＝配置枠</div>
   </div>
@@ -481,8 +481,10 @@ window.addEventListener('DOMContentLoaded', function(){ HAICHI_LOCKED = !!lsGet_
 function prioRaw(wid, skillKey){ return (prio[wid] && prio[wid][skillKey]!=null) ? String(prio[wid][skillKey]).trim() : ''; }
 function prioNumOf(wid, skillKey){ const v = prioRaw(wid, skillKey); if(v==='' || /^[×xX]$/.test(v)) return null; const n = parseInt(v.replace(/[^0-9]/g,''),10); return (!isNaN(n) && n>0) ? n : null; }
 function isBlockedCell_(wid, skillKey){ return /^[×xX]$/.test(prioRaw(wid, skillKey)); }
-// 配置枠の丸の色：優先番号あり＝緑／×＝赤／空欄＝青
-function chipClass_(wid, skillKey){ if(isBlockedCell_(wid, skillKey)) return 'lvl-bad'; if(prioNumOf(wid, skillKey)!==null) return 'lvl-good'; return 'lvl-none'; }
+// 配置枠の丸の色：社員＝青／それ以外＝緑（2026-10-05 曽我さん依頼。社員は力量表の「区分」列で判定）。
+//   ×（不可の工程に置かれている）だけは警告として赤のまま。
+function isShain_(wid){ var w = worker(wid); return !!(w && /社員/.test(String(w.category || ''))); }
+function chipClass_(wid, skillKey){ if(isBlockedCell_(wid, skillKey)) return 'lvl-bad'; return isShain_(wid) ? 'lvl-none' : 'lvl-good'; }
 // 候補を「優先番号の小さい順、同じ番号はランダム」で並べる（mode==='random'は全体ランダム）
 function sortByPrioThenRandom_(cands, skillKey, mode){
   if(mode==='random') return shuffle(cands.slice());
@@ -1109,7 +1111,7 @@ function applyLiveData(payload){
     _restoringLayout = true;
     {
       // 氏名リストを力量表基準で作り直す
-      workers = haichi.people.map(function(p,i){ return {id:'w'+i, name:p.name, attend:true, shiftStatus:''}; });
+      workers = haichi.people.map(function(p,i){ return {id:'w'+i, name:p.name, attend:true, shiftStatus:'', category:String(p.category||'')}; });
       pinned = {};
       skills = {};
       workers.forEach(function(w){ skills[w.id] = {}; ZONES.forEach(function(z){ skills[w.id][z.skill]=''; }); });
@@ -1144,6 +1146,7 @@ function applyLiveData(payload){
       workers.forEach(function(w){ var k = normNameC_(w.name); if(k) haveKeysC[k] = true; });
       shift.support.forEach(function(nm){
         nm = String(nm || '').trim(); if(!nm) return;
+        if(/舟/.test(nm)) return;   // 「午後流し舟」等は人ではない（2026-10-05。GAS側でも除外済み・古いGAS向けの保険）
         var nk = normNameC_(nm); if(nk && haveKeysC[nk]) return;   // 既に居る同名は重複させない
         if(nk) haveKeysC[nk] = true;
         var id = 'w' + workers.length;
