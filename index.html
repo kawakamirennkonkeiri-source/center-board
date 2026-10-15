@@ -3953,9 +3953,16 @@
 <!-- ===== 資材表：資材管理アプリのアラート連携 ===== -->
 <script>
   // 同フォルダの資材管理アプリを開く（同じブラウザなら localStorage を共有）
-  function openShizaiApp(hash){
+  // 2026-10-15〜 広島の資材アプリ（同じgithub.io）が以前 'shizai_alerts' に広島のURL・アラートを書いていたので、
+  //   appUrl が広島（hiroshima-board）のものは無視する（センター黒板から広島の資材アプリが開いていた）。
+  function shizaiLocalAlerts_(){
     var a=null; try{ a=JSON.parse(localStorage.getItem('shizai_alerts')||'null'); }catch(e){}
-    var url=(a&&a.appUrl)?a.appUrl:'資材管理アプリ.html';
+    if(a && String(a.appUrl||'').indexOf('hiroshima-board')>=0) return null;
+    return a;
+  }
+  function openShizaiApp(hash){
+    var a=shizaiLocalAlerts_();
+    var url=(a&&a.appUrl)?a.appUrl:'shizai.html';
     if(hash){ url=url.split('#')[0]+hash; }
     window.open(url,'_blank');
   }
@@ -3963,7 +3970,7 @@
   function matApplyCloudAlerts_(a){ shizaiCloudAlerts=a||null; matLoadAlerts(); }
   function matLoadAlerts(){
     var a=shizaiCloudAlerts;
-    if(!a){ try{ a=JSON.parse(localStorage.getItem('shizai_alerts')||'null'); }catch(e){} }
+    if(!a){ a=shizaiLocalAlerts_(); }
     var grid=document.getElementById('matGrid');
     var badge=document.getElementById('matAlertBadge');
     if(!a){
@@ -4005,7 +4012,7 @@
     }catch(e){}
     // ① 資材確認：発注推奨（在庫切れ予定）＋納品遅延＝“足りない資材”があるとき
     try{
-      var a=shizaiCloudAlerts; if(!a){ a=JSON.parse(localStorage.getItem('shizai_alerts')||'null'); }
+      var a=shizaiCloudAlerts; if(!a){ a=shizaiLocalAlerts_(); }
       var short=a ? (((a.reorder&&a.reorder.length)||0)+((a.deliverLate&&a.deliverLate.length)||0)) : 0;
       if(short>0) items.push('<div class="item" style="cursor:pointer" onclick="openShizaiApp()" title="資材管理アプリを開く">🧰 資材確認（'+short+'件）</div>');
     }catch(e){}
