@@ -440,30 +440,62 @@ function getSummary_(params){
   var out = { date: Utilities.formatDate(today, CFG.TZ, 'yyyy-MM-dd'), targetFunes: null, jisseki: { funes:null, kg:null, budomari:null }, orderTotalKg: null, orderKawakamiKg: null, orderBudomari: null, orderCsRate: null, orderKawakamiCsKg: null };
   try{ out.targetFunes = readOrderFunes_(today); }catch(e){ out.targetError = String(e); }
   try{ out.jisseki = readJisseki_(today); }catch(e){ out.jissekiError = String(e); }
+  // ★2026-10-15：「進捗」シートを3関数がそれぞれ getDataRange() で全範囲読み → summary だけで約70秒・bundle 約95秒になり、
+  //   電子黒板の30秒更新（25秒で打ち切り）が毎回失敗＝進捗差分などが起動時の値のまま固まった。
+  //   → 見出し行＋今日の行だけを1回読み（progressCtx_）、3関数で使い回す。
+  var pctx = null;
+  try{ pctx = progressCtx_(today); }catch(e){ out.progressCtxError = String(e); }
   try{
-    var prog = readOrderProgressRow_(today);
+    var prog = readOrderProgressRow_(today, pctx);
     out.orderTotalKg    = prog.totalKg;
     out.orderKawakamiKg = prog.kawakamiKg;
     out.orderBudomari   = prog.budomari;
     out.orderCsRate     = prog.csRate;   // ② 発注書「進捗」シートのCS率（参考値・比較表示専用。読み取り専用）
   }catch(e){ out.orderTotalKgError = String(e); }
-  try{ out.orderProgressByClient = readOrderProgressByClient_(today); }catch(e){ out.orderProgressByClientError = String(e); }
+  try{ out.orderProgressByClient = readOrderProgressByClient_(today, pctx); }catch(e){ out.orderProgressByClientError = String(e); }
   // 2026-09-03：荷造りCS㎏を「カワカミ荷造数」欄から自動計算（曽我さん依頼。読み取り専用）
-  try{ out.orderKawakamiCsKg = readKawakamiCsKg_(today); }catch(e){ out.orderKawakamiCsKgError = String(e); }
+  try{ out.orderKawakamiCsKg = readKawakamiCsKg_(today, pctx); }catch(e){ out.orderKawakamiCsKgError = String(e); }
   return out;
 }
+// 「進捗」シートの読み取りを軽くする共通部品（読み取り専用）。
+//   全範囲(getDataRange)ではなく ①上から PROGRESS_HEAD_ROWS 行（取引先名・見出し） ②A列だけ ③今日の行1行 の3回だけ読む。
+//   戻り値の v は「見出し行＋今日の行」だけが入った疎な2次元配列（行番号は元のシートと同じ）＝既存の v[r][c] の書き方のまま使える。
+//   今日の行が無い日は todayRow=-1（各関数は従来どおり空/null を返す）。
+var PROGRESS_HEAD_ROWS = 20;
+function progressCtx_(today){
+  var sh = SpreadsheetApp.openById(CFG.ORDER_SS_ID).getSheetByName(CFG.ORDER_SHEET);
+  if(!sh) return null;
+  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  if(lastRow < 1 || lastCol < 1) return null;
+  var headN = Math.min(PROGRESS_HEAD_ROWS, lastRow);
+  var v = sh.getRange(1, 1, headN, lastCol).getValues();
+  var colA = sh.getRange(1, 1, lastRow, 1).getValues();
+  var todayStr = Utilities.formatDate(today, CFG.TZ, 'yyyy/M/d');
+  var todayRow = -1;
+  for(var r=0; r<colA.length; r++){
+    var a = colA[r][0];
+    if(a instanceof Date && Utilities.formatDate(a, CFG.TZ, 'yyyy/M/d') === todayStr){ todayRow = r; break; }
+  }
+  if(todayRow >= headN) v[todayRow] = sh.getRange(todayRow+1, 1, 1, lastCol).getValues()[0];
+  return { v: v, headN: headN, todayRow: todayRow };
+}
+// ctx が無い（単独呼び出し）ときは作る。
+function progressCtxOf_(today, ctx){ return ctx || progressCtx_(today); }
 // 発注書メインシートの「収穫舟数」列（見出しで自動検出）× 日付(B列)が今日の行の値。
 //   ・列は固定しない：取引先が増えて列がズレても、見出し名（CFG.ORDER_FUNES_HEADER＝既定「収穫舟数」）で列を探す。
 //   ・見出しは改行・空白があってもOK（除去して部分一致で判定）。上から15行を走査。
 function readOrderFunes_(today){
   var sh = SpreadsheetApp.openById(CFG.ORDER_SS_ID).getSheetByName('発注書');
   if(!sh) return null;
-  var v = sh.getDataRange().getValues();
+  // ★2026-10-15：全範囲読み(getDataRange)は重いので、見出し15行＋B列＋該当セルだけ読む（結果は同じ）
+  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  if(lastRow < 1 || lastCol < 1) return null;
+  var v = sh.getRange(1, 1, Math.min(15, lastRow), lastCol).getValues();
   var want = String(CFG.ORDER_FUNES_HEADER || '収穫舟数').replace(/\s|　/g,'');
 
   // ① 「収穫舟数」の見出しがある列を探す
   var col = -1;
-  for(var r=0; r<Math.min(v.length,15) && col<0; r++){
+  for(var r=0; r<v.length && col<0; r++){
     for(var c=0; c<v[r].length; c++){
       if(String(v[r][c]==null?'':v[r][c]).replace(/\s|　/g,'').indexOf(want) >= 0){ col = c; break; }
     }
@@ -472,10 +504,11 @@ function readOrderFunes_(today){
 
   // ② 今日の行（B列＝日付）を探して、その列の値を返す
   var todayStr = Utilities.formatDate(today, CFG.TZ, 'yyyy/M/d');
-  for(var r2=0; r2<v.length; r2++){
-    var b = v[r2][1]; // B列
+  var colB = sh.getRange(1, 2, lastRow, 1).getValues();
+  for(var r2=0; r2<colB.length; r2++){
+    var b = colB[r2][0]; // B列
     if(b instanceof Date && Utilities.formatDate(b, CFG.TZ, 'yyyy/M/d') === todayStr){
-      var val = v[r2][col];
+      var val = sh.getRange(r2+1, col+1).getValue();
       var n = (typeof val === 'number') ? val : Number(String(val).replace(/[^0-9.\-]/g,''));
       return isNaN(n) ? null : n;
     }
@@ -494,11 +527,11 @@ function readOrderFunes_(today){
 //       同じ文字列があった場合にそちらを拾ってしまい、値が常に0/空になる不具合が2026-08-31に発生したため、
 //       信頼できる「合計kg数」列を基準にした相対位置での取得に変更した。
 //   ・日付はA列（Date型）。テキスト形式で入っていた場合は拾えないので、その時はA列の書式を確認する。
-function readOrderProgressRow_(today){
+function readOrderProgressRow_(today, ctx){
   var out = { totalKg:null, kawakamiKg:null, budomari:null, csRate:null };
-  var sh = SpreadsheetApp.openById(CFG.ORDER_SS_ID).getSheetByName(CFG.ORDER_SHEET);
-  if(!sh) return out;
-  var v = sh.getDataRange().getValues();
+  ctx = progressCtxOf_(today, ctx);
+  if(!ctx) return out;
+  var v = ctx.v;
 
   // ① 「合計kg数」の見出しがある列を探す（見出し文字の完全一致・空白/全角㎏ゆれは吸収）
   var colTotal=-1;
@@ -523,16 +556,12 @@ function readOrderProgressRow_(today){
   //    ※空欄セルはNumber('')が0になってしまうため、明示的にnullで返す（0扱いにすると「確認中」であるべき
   //      状態が誤って「差0kgあり」等に化けてしまうため）。
   function num_(val){ if(val===''||val==null) return null; var n=(typeof val==='number')?val:Number(String(val).replace(/[^0-9.\-]/g,'')); return isNaN(n)?null:n; }
-  var todayStr = Utilities.formatDate(today, CFG.TZ, 'yyyy/M/d');
-  for(var r2=0; r2<v.length; r2++){
-    var a = v[r2][0]; // A列
-    if(a instanceof Date && Utilities.formatDate(a, CFG.TZ, 'yyyy/M/d') === todayStr){
-      if(colTotal>=0)    out.totalKg    = num_(v[r2][colTotal]);
-      if(colKawakami>=0) out.kawakamiKg = num_(v[r2][colKawakami]);
-      if(colBud>=0)      out.budomari   = num_(v[r2][colBud]);
-      if(colCsRate>=0)   out.csRate     = num_(v[r2][colCsRate]);
-      break;
-    }
+  var r2 = ctx.todayRow;   // A列が今日の行（progressCtx_ で検出済み）
+  if(r2 >= 0){
+    if(colTotal>=0)    out.totalKg    = num_(v[r2][colTotal]);
+    if(colKawakami>=0) out.kawakamiKg = num_(v[r2][colKawakami]);
+    if(colBud>=0)      out.budomari   = num_(v[r2][colBud]);
+    if(colCsRate>=0)   out.csRate     = num_(v[r2][colCsRate]);
   }
   return out;
 }
@@ -540,27 +569,22 @@ function readOrderProgressRow_(today){
 //   ・4行目＝取引先名（結合セル運用のため空欄は左の値を引き継ぐ）／5行目＝見出しに「荷造数」を含む列を検出。
 //   ・区分・入数違いの列がまたがっていても、取引先名だけをキーに本日ぶんを合算する（単位＝c/s、金額換算しない）。
 //   ・列は固定しない（見出し文字で検出）。発注書スプレッドシートへは書き込まない。
-function readOrderProgressByClient_(today){
+function readOrderProgressByClient_(today, ctx){
   var out = {};
-  var sh = SpreadsheetApp.openById(CFG.ORDER_SS_ID).getSheetByName(CFG.ORDER_SHEET);
-  if(!sh) return out;
-  var v = sh.getDataRange().getValues();
+  ctx = progressCtxOf_(today, ctx);
+  if(!ctx) return out;
+  var v = ctx.v;
 
   // ① 取引先名の行（4行目）＝A列に西暦が入っている行
   var custRow = -1;
-  for(var r=0; r<Math.min(v.length,15); r++){ var y=Number(v[r][0]); if(y>=2000 && y<=2100){ custRow=r; break; } }
+  for(var r=0; r<Math.min(ctx.headN,15); r++){ var y=Number(v[r][0]); if(y>=2000 && y<=2100){ custRow=r; break; } }
   if(custRow<0) return out;
   var subRow = custRow + 1;   // 5行目＝「荷造数」見出し
-  if(subRow>=v.length) return out;
+  if(subRow>=ctx.headN) return out;
 
-  // ② 今日の行（A列＝日付）を探す
-  var todayStr = Utilities.formatDate(today, CFG.TZ, 'yyyy/M/d');
-  var todayRow = -1;
-  for(var r2=subRow+1; r2<v.length; r2++){
-    var d = v[r2][0];
-    if(d instanceof Date && Utilities.formatDate(d, CFG.TZ, 'yyyy/M/d') === todayStr){ todayRow = r2; break; }
-  }
-  if(todayRow<0) return out;
+  // ② 今日の行（A列＝日付。progressCtx_ で検出済み）
+  var todayRow = ctx.todayRow;
+  if(todayRow<=subRow) return out;
 
   // ③ 「荷造数」列を見出しで検出し、1列左の取引先名（空欄は直前の名前を引き継ぐ）で合算
   var lastName = '';
@@ -590,14 +614,14 @@ function readOrderProgressByClient_(today){
 //     区分「C」があるため、隣の取引先の列まで巻き込んで合計してしまっていた（実測400kgのはずが1900kgに）。
 //     → ブロックの終わりは「区分の有無」ではなく「見出し行(headRow)に次の取引先名が現れたか」で判定するよう修正
 //     （結合セルなので見出し行はブロックの先頭列だけ値があり、それ以外は空欄になる仕組みを利用）。
-function readKawakamiCsKg_(today){
-  var sh = SpreadsheetApp.openById(CFG.ORDER_SS_ID).getSheetByName(CFG.ORDER_SHEET);
-  if(!sh) return null;
-  var v = sh.getDataRange().getValues();
+function readKawakamiCsKg_(today, ctx){
+  ctx = progressCtxOf_(today, ctx);
+  if(!ctx) return null;
+  var v = ctx.v;
 
   // ①「カワカミ荷造数」の見出しセルを探す（結合セルなので値は先頭列だけに入っている）
   var headRow=-1, startCol=-1;
-  for(var r=0; r<Math.min(v.length,10) && headRow<0; r++){
+  for(var r=0; r<Math.min(ctx.headN,10) && headRow<0; r++){
     for(var c=0; c<v[r].length; c++){
       var t = String(v[r][c]==null?'':v[r][c]).replace(/\s|　/g,'');
       if(t==='カワカミ荷造数'){ headRow=r; startCol=c; break; }
@@ -605,7 +629,7 @@ function readKawakamiCsKg_(today){
   }
   if(headRow<0) return null;   // 見出しが見つからない（名前が変わったらここを直す）
   var kubunRow = headRow+1, weightRow = headRow+2;
-  if(weightRow>=v.length) return null;
+  if(weightRow>=ctx.headN) return null;
 
   // ② 見出し行(headRow)に次の取引先名が現れるまでを「カワカミ荷造数」ブロックとみなして列を集める
   //   （結合セルの仕組み上、ブロック内はstartCol以外headRowが空欄になる）。重さは「5kg」等の文字列も数値だけ取り出す。
@@ -621,13 +645,8 @@ function readKawakamiCsKg_(today){
   if(!cols.length) return null;
 
   // ③ 今日の行（A列＝日付）を探して、各列（件数）×重さ の合計を返す
-  var todayStr = Utilities.formatDate(today, CFG.TZ, 'yyyy/M/d');
-  var row=-1;
-  for(var r2=headRow; r2<v.length; r2++){
-    var a=v[r2][0];
-    if(a instanceof Date && Utilities.formatDate(a, CFG.TZ, 'yyyy/M/d')===todayStr){ row=r2; break; }
-  }
-  if(row<0) return null;
+  var row = ctx.todayRow;   // progressCtx_ で検出済み
+  if(row<headRow) return null;
   var kg=0;
   cols.forEach(function(x){
     var raw = v[row][x.c];

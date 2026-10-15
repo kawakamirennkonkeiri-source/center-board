@@ -2832,7 +2832,7 @@
     var cbName = 'hcCb_' + type + '_' + Date.now();
     var s = document.createElement('script');
     var done = false;
-    var timer = setTimeout(function(){ if(!done){ done=true; cb(null); try{delete window[cbName];}catch(e){} s.remove(); } }, 20000);
+    var timer = setTimeout(function(){ if(!done){ done=true; cb(null); try{delete window[cbName];}catch(e){} s.remove(); } }, 90000);   // 2026-10-15：20秒→90秒（summaryが遅い日に起動時の取得まで捨てていた）
     window[cbName] = function(data){ done=true; clearTimeout(timer); cb(data); try{delete window[cbName];}catch(e){} s.remove(); };
     var q = '';   // 🔮 予測タブのように日付などを渡したいときは extra={date:'YYYY-MM-DD'} を付ける
     if(extra){ Object.keys(extra).forEach(function(k){ if(extra[k]!=null && extra[k]!=='') q += '&' + k + '=' + encodeURIComponent(extra[k]); }); }
@@ -3810,15 +3810,19 @@
     // ⑩ センターTODOマスタ＋本日のチェック状態（マスタに行を足すだけで全PCへ自動反映）
     if(d.todo && !d.todo.error){ todoApply_(d.todo); }
   }
+  // ★2026-10-15：GASの応答が25秒を超えると毎回捨てていた → 30秒更新が一度も成功せず進捗差分などが固まった。
+  //   打ち切りを120秒に延ばし、前の取得が終わるまで次は出さない（_bundleBusy）＝遅い日でも必ずどこかで反映される。
+  var _bundleBusy = false;
   function centerPollBundle(){
-    if(!CENTER_ENDPOINT) return;
+    if(!CENTER_ENDPOINT || _bundleBusy) return;
+    _bundleBusy = true;
     var cb='bundleCb_'+Date.now(); var s=document.createElement('script'); var done=false;
-    var timer=setTimeout(function(){ if(!done){ done=true; window[cb]=function(){}; s.remove(); } }, 25000);
-    window[cb]=function(d){ if(done) return; done=true; clearTimeout(timer); try{ centerApplyBundle_(d||{}); }catch(e){} window[cb]=function(){}; s.remove(); };
+    var timer=setTimeout(function(){ if(!done){ done=true; _bundleBusy=false; window[cb]=function(){}; s.remove(); } }, 120000);
+    window[cb]=function(d){ if(done) return; done=true; _bundleBusy=false; clearTimeout(timer); try{ centerApplyBundle_(d||{}); }catch(e){} window[cb]=function(){}; s.remove(); };
     var q='type=bundle&days='+nzDaysWanted+'&callback='+cb;
     if(nzJumpDate) q+='&date='+encodeURIComponent(nzJumpDate);
     s.src=CENTER_ENDPOINT+(CENTER_ENDPOINT.indexOf('?')>=0?'&':'?')+q;
-    s.onerror=function(){ if(!done){ done=true; clearTimeout(timer); window[cb]=function(){}; s.remove(); } };
+    s.onerror=function(){ if(!done){ done=true; _bundleBusy=false; clearTimeout(timer); window[cb]=function(){}; s.remove(); } };
     document.head.appendChild(s);
   }
   setInterval(centerPollBundle, 30*1000);   // ★ 30秒ごとに全液晶をリンク（1回のGAS呼び出しで全データ取得）
