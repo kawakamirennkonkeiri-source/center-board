@@ -3253,6 +3253,15 @@
     if(!el) return;
     var mineKg = boardData.jissekiKg, theirsKg = boardData.orderKawakamiKg;
     var mineBud = boardData.jissekiBudomari, theirsBud = boardData.orderBudomari;
+    // 2026-10-17：何も入力していない（電子黒板・発注書とも荷造りkgが0／未取得）のに
+    //   「一致しました」が出ないよう、最初は「本日のデータがまだありません」を出す（曽我さん依頼）。
+    var noMine = (typeof mineKg !== 'number' || Math.abs(mineKg) < 0.1);
+    var noTheirs = (typeof theirsKg !== 'number' || Math.abs(theirsKg) < 0.1);
+    if(noMine && noTheirs){
+      el.className = 'match-msg';
+      el.textContent = '本日のデータがまだありません';
+      return;
+    }
     if(typeof mineKg !== 'number' || typeof theirsKg !== 'number' || typeof mineBud !== 'number' || typeof theirsBud !== 'number'){
       el.className = 'match-msg';
       el.textContent = '確認中…（データ取得待ち）';
