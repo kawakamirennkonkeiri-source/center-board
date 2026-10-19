@@ -1791,6 +1791,25 @@
   // 表示状態
   let nzDaysWanted = 3;   // 今日から何日分
   let nzJumpDate   = '';  // 追加で見たい指定日 'yyyy/m/d'
+  // ★2026-10-19：「＋先の日を追加」「この日を表示」をその日いっぱい保つ。
+  //   ①このPCに当日キーで控える（再読み込みしても戻らない。日付が変わると3日に戻る）
+  //   ②表示を変えた後に、変える前に出した取得（30秒まとめ取得など）が遅れて届いても荷造り一覧は上書きしない（nzViewRev）
+  let nzViewRev = 0;
+  function nzViewKey_(){ const t = new Date(); return 'nz_view_' + t.getFullYear() + '-' + (t.getMonth()+1) + '-' + t.getDate(); }
+  function nzSaveView_(){
+    nzViewRev++;
+    try{
+      Object.keys(localStorage).forEach(function(k){ if(k.indexOf('nz_view_') === 0 && k !== nzViewKey_()) localStorage.removeItem(k); });
+      if(nzDaysWanted === 3 && !nzJumpDate) localStorage.removeItem(nzViewKey_());
+      else localStorage.setItem(nzViewKey_(), JSON.stringify({ days: nzDaysWanted, jump: nzJumpDate }));
+    }catch(e){}
+  }
+  (function(){
+    try{
+      const v = JSON.parse(localStorage.getItem(nzViewKey_()) || 'null');
+      if(v){ nzDaysWanted = Math.max(3, Math.min(31, Number(v.days) || 3)); nzJumpDate = v.jump || ''; }
+    }catch(e){}
+  })();
   const NZ_SAMPLE = { dates: JSON.parse(JSON.stringify(NZ_DATES)), orders: JSON.parse(JSON.stringify(NZ_ORDERS)) };
   const NZ_WDAY = ['日','月','火','水','木','金','土'];
 
@@ -2226,9 +2245,10 @@
     const s = document.createElement('script');
     let done = false;
     const timer = setTimeout(function(){ if(!done){ nzSetStatus('🟡 サンプル（取得タイムアウト）', '#a76a00'); } }, 8000);
+    const rev = nzViewRev;
     window[cb] = function(data){
       done = true; clearTimeout(timer);
-      nzApplyLiveData_(data);
+      if(rev === nzViewRev) nzApplyLiveData_(data);   // 取得中に表示日数を変えていたら古い結果は捨てる
       delete window[cb]; s.remove();
     };
     let src = CENTER_ENDPOINT + (CENTER_ENDPOINT.includes('?')?'&':'?') + 'type=nizukuri&days=' + nzDaysWanted + '&callback=' + cb;
@@ -2241,11 +2261,13 @@
   // 「＋先の日を追加」
   function nzExtend(){
     nzDaysWanted++;
+    nzSaveView_();
     if(CENTER_ENDPOINT) nzLoadLive(); else nzAppendSampleDay();
   }
   // 「3日に戻す」
   function nzResetDays(){
     nzDaysWanted = 3; nzJumpDate = '';
+    nzSaveView_();
     const j = document.getElementById('nz-jump'); if(j) j.value = '';
     if(CENTER_ENDPOINT){ nzLoadLive(); }
     else { NZ_DATES = JSON.parse(JSON.stringify(NZ_SAMPLE.dates)); NZ_ORDERS = JSON.parse(JSON.stringify(NZ_SAMPLE.orders)); nzRender(); }
@@ -2256,6 +2278,7 @@
     if(!j || !j.value) return;
     const p = j.value.split('-');            // yyyy-mm-dd
     nzJumpDate = p[0] + '/' + Number(p[1]) + '/' + Number(p[2]);
+    nzSaveView_();
     if(CENTER_ENDPOINT) nzLoadLive(); else nzAppendSampleDay(nzJumpDate, '指定日');
   }
   // オフライン時：空の日セクションを追加（仕組みの見た目確認用）
@@ -3827,7 +3850,10 @@
     _bundleBusy = true;
     var cb='bundleCb_'+Date.now(); var s=document.createElement('script'); var done=false;
     var timer=setTimeout(function(){ if(!done){ done=true; _bundleBusy=false; window[cb]=function(){}; s.remove(); } }, 120000);
-    window[cb]=function(d){ if(done) return; done=true; _bundleBusy=false; clearTimeout(timer); try{ centerApplyBundle_(d||{}); }catch(e){} window[cb]=function(){}; s.remove(); };
+    var rev=nzViewRev;
+    window[cb]=function(d){ if(done) return; done=true; _bundleBusy=false; clearTimeout(timer);
+      d=d||{}; if(rev!==nzViewRev) delete d.nizukuri;   // 取得中に「＋先の日を追加」等を押した＝古い日数の荷造り一覧で上書きしない
+      try{ centerApplyBundle_(d); }catch(e){} window[cb]=function(){}; s.remove(); };
     var q='type=bundle&days='+nzDaysWanted+'&callback='+cb;
     if(nzJumpDate) q+='&date='+encodeURIComponent(nzJumpDate);
     s.src=CENTER_ENDPOINT+(CENTER_ENDPOINT.indexOf('?')>=0?'&':'?')+q;
