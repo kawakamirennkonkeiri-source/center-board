@@ -2354,11 +2354,21 @@
 
   // 取得した圃場データを画面へ反映（hojoLoadLive とまとめ取得の両方から使う）。戻り値＝反映したか
   var _hojoDirty=false;   // このPCで入力したがまだクラウドに保存できていない＝まとめ取得で上書きしない
+  // 2026-10-20：生産者タブと同じ対策。入力のたびに +1 し、取得中に入力していたら届いたデータ（入力前の古いもの）は捨てる。
+  //   GASの hojoSave_ はその日付を全部書き直すので、古いデータで画面が戻ったまま次の＋1を押すと他の圃場の舟数まで巻き戻っていた。
+  var hojoEditRev=0;
+  function hojoFetchMark_(){ return { rev:hojoEditRev, dirty:_hojoDirty }; }
+  function hojoFetchStale_(m){ return !m || m.dirty || m.rev!==hojoEditRev || _hojoDirty; }
+  function hojoSig_(fields){ return JSON.stringify((fields||[]).map(function(f){ return [String(f.name), Number(f.funes)||0, !!f.fromDx]; })); }
+  function hojoEditing_(){ var a=document.activeElement, w=document.getElementById('hojo-list'); return !!(a && w && a.tagName==='INPUT' && w.contains(a)); }
   function hojoApplyLive_(data){
     if(data && data.date===HOJO.date && Array.isArray(data.fields) && data.fields.length){
-      HOJO.fields = data.fields.map(function(f){ return {name:String(f.name), funes:Number(f.funes)||0, fromDx:!!f.fromDx}; });
-      hojoSaveLocal(); hojoRender();
-      if(typeof updateJissekiFromOps==='function') updateJissekiFromOps();   // 本日実績（舟数）へ反映
+      var nf = data.fields.map(function(f){ return {name:String(f.name), funes:Number(f.funes)||0, fromDx:!!f.fromDx}; });
+      var same = hojoSig_(nf)===hojoSig_(HOJO.fields);
+      if(!same && hojoEditing_()) return true;   // 舟数を打っている途中は描き直さない（次の取得で反映）
+      HOJO.fields = nf;
+      hojoSaveLocal();
+      if(!same){ hojoRender(); if(typeof updateJissekiFromOps==='function') updateJissekiFromOps(); }   // 本日実績（舟数）へ反映（同じ中身なら描き直さない）
       var t=new Date(); hojoSetStatus('🟢 保存済み '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2),'var(--green)');
       return true;
     }
@@ -2370,7 +2380,9 @@
     hojoSetStatus('読み込み中…','var(--muted)');
     var cb='hojoCb_'+Date.now(); var s=document.createElement('script'); var done=false;
     var timer=setTimeout(function(){ if(!done){ hojoSetStatus('🟡 取得できず（ローカル表示）','#a76a00'); } },12000);
+    var mark=hojoFetchMark_();
     window[cb]=function(data){ done=true; clearTimeout(timer);
+      if(hojoFetchStale_(mark)){ delete window[cb]; s.remove(); return; }   // 取得中に入力した＝届いたのは入力前の古いデータなので捨てる
       if(!hojoApplyLive_(data)){
         // サーバに今日の記録がまだ無い＝未保存。ローカルに入力済みなら、そのままクラウドへ移行保存（④「保持」）
         if(HOJO.fields && HOJO.fields.length){ hojoSetStatus('🟢 接続OK（ローカル入力分を保存中…）','var(--green)'); hojoPushSave(); }
@@ -2388,7 +2400,7 @@
     hojoSaveLocal();
     if(!CENTER_ENDPOINT){ hojoSetStatus('ローカル保存のみ','var(--muted)'); return; }
     if(hojoSaveTimer) clearTimeout(hojoSaveTimer);
-    _hojoDirty=true;
+    _hojoDirty=true; hojoEditRev++;
     hojoSetStatus('保存中…','var(--muted)');
     hojoSaveTimer=setTimeout(function(){
       fetch(CENTER_ENDPOINT,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
@@ -3866,7 +3878,7 @@
     // 本日サマリ（予定舟数など）
     if(d.summary && !d.summary.error && typeof haichiUpdateBoard==='function'){ haichiUpdateBoard(d.summary); }
     // 圃場（本日実績の舟数に反映）：自分の未保存入力があるときは上書きしない
-    if(d.hojo && !d.hojo.error && !_hojoDirty){ hojoApplyLive_(d.hojo); }
+    if(d.hojo && !d.hojo.error && !hojoFetchStale_(d._hojoMark)){ hojoApplyLive_(d.hojo); }   // 2026-10-20：取得開始後の入力・未保存なら捨てる
     // 生産者：自分の未保存入力があるときは上書きしない
     // 2026-10-20：取得を始めた後に入力した／始めた時点で保存が終わっていなかった場合も捨てる（約23秒遅れで届く古いデータがCやSを消していた）
     if(d.seisan && !d.seisan.error && !seisanFetchStale_(d._seisanMark)){ seisanApplyLive_(d.seisan); }
@@ -3881,9 +3893,9 @@
     _bundleBusy = true;
     var cb='bundleCb_'+Date.now(); var s=document.createElement('script'); var done=false;
     var timer=setTimeout(function(){ if(!done){ done=true; _bundleBusy=false; window[cb]=function(){}; s.remove(); } }, 120000);
-    var rev=nzViewRev, sMark=seisanFetchMark_();
+    var rev=nzViewRev, sMark=seisanFetchMark_(), hMark=hojoFetchMark_();
     window[cb]=function(d){ if(done) return; done=true; _bundleBusy=false; clearTimeout(timer);
-      d=d||{}; if(rev!==nzViewRev) delete d.nizukuri; d._seisanMark=sMark;   // 取得中に「3日表示／7日表示」等を押した＝古い日数の荷造り一覧で上書きしない
+      d=d||{}; if(rev!==nzViewRev) delete d.nizukuri; d._seisanMark=sMark; d._hojoMark=hMark;   // 取得中に「3日表示／7日表示」等を押した＝古い日数の荷造り一覧で上書きしない
       try{ centerApplyBundle_(d); }catch(e){} window[cb]=function(){}; s.remove(); };
     var q='type=bundle&days='+nzDaysWanted+'&callback='+cb;
     if(nzJumpDate) q+='&date='+encodeURIComponent(nzJumpDate);
