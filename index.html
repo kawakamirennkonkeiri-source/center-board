@@ -2670,11 +2670,30 @@
   // 保存時にサーバーへ送り、行単位マージ（他PCが追加/入力した、この端末がまだ知らない生産者を消さない）に使う。
   var SEISAN_KNOWN_KEYS = null;
   function seisanKeysOf_(list){ return (list||[]).map(function(p){ return (p.ampm==='PM'?'PM':'AM')+'|'+String(p.name); }); }
+  // 2026-10-20：入力のたびに +1。取得を始めた時点の値と届いた時点の値が違えば「取得中に入力した」＝届いたデータは入力前の古いもの。
+  var seisanEditRev=0;
+  // 取得を始める時点で呼ぶ。届いたときに seisanFetchStale_(印) が true なら、その生産者データは捨てる。
+  function seisanFetchMark_(){ return { rev:seisanEditRev, dirty:_seisanDirty }; }
+  function seisanFetchStale_(m){ return !m || m.dirty || m.rev!==seisanEditRev || _seisanDirty; }
+  // 中身の比較用（行のキー順・0の項目・funes未設定の違いを無視）
+  function seisanSig_(list){
+    return JSON.stringify((list||[]).map(function(p){
+      var r=p.rows||{}; var ks=Object.keys(r).filter(function(k){ return Number(r[k])>0; }).sort();
+      return [String(p.name), (p.ampm==='PM'?'PM':'AM'), Number(p.funes)||0, ks.map(function(k){ return k+'='+Number(r[k]); })];
+    }));
+  }
+  // 生産者タブの入力欄にカーソルがある（打ちかけの数字がある）か
+  function seisanEditing_(){ var a=document.activeElement, w=document.getElementById('seisan-list'); return !!(a && w && a.tagName==='INPUT' && w.contains(a)); }
   function seisanApplyLive_(data){
     if(data && data.date===SEISAN.date && Array.isArray(data.list) && data.list.length){
-      SEISAN.list = data.list.map(function(p){ var rows={}; if(p.rows&&typeof p.rows==='object'){ Object.keys(p.rows).forEach(function(k){ rows[k]=Number(p.rows[k])||0; }); } return { name:String(p.name), ampm:(p.ampm==='PM'?'PM':'AM'), rows:rows, funes:Number(p.funes)||0 }; });
+      var nl = data.list.map(function(p){ var rows={}; if(p.rows&&typeof p.rows==='object'){ Object.keys(p.rows).forEach(function(k){ rows[k]=Number(p.rows[k])||0; }); } return { name:String(p.name), ampm:(p.ampm==='PM'?'PM':'AM'), rows:rows, funes:Number(p.funes)||0 }; });
+      var same = seisanSig_(nl)===seisanSig_(SEISAN.list);
+      // 2026-10-20：中身が違っても入力中なら描き直さない（打ちかけの数字が消えるため）。次の取得で反映する。
+      if(!same && seisanEditing_()) return true;
+      SEISAN.list = nl;
       SEISAN_KNOWN_KEYS = seisanKeysOf_(SEISAN.list);   // サーバーの最新の生産者一覧を「知っている」状態にする
-      seisanSaveLocal(); seisanRender(); seisanApplyToBoard_();   // ③ 収穫舟数を板へ反映
+      seisanSaveLocal();
+      if(!same){ seisanRender(); seisanApplyToBoard_(); }   // ③ 収穫舟数を板へ反映（同じ中身なら描き直さない）
       var t=new Date(); seisanSetStatus('🟢 保存済み '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2),'var(--green)');
       return true;
     }
@@ -2685,7 +2704,9 @@
     seisanSetStatus('読み込み中…','var(--muted)');
     var cb='seisanCb_'+Date.now(); var s=document.createElement('script'); var done=false;
     var timer=setTimeout(function(){ if(!done){ seisanSetStatus('🟡 取得できず（ローカル表示）','#a76a00'); } },12000);
+    var mark=seisanFetchMark_();
     window[cb]=function(data){ done=true; clearTimeout(timer);
+      if(seisanFetchStale_(mark)){ delete window[cb]; s.remove(); return; }   // 取得中に入力した＝届いたのは入力前の古いデータなので捨てる
       if(!seisanApplyLive_(data)){
         if(SEISAN.list && SEISAN.list.length){ seisanSetStatus('🟢 接続OK（ローカル入力分を保存中…）','var(--green)'); seisanPushSave(); }
         else seisanSetStatus('🟢 保存先に接続OK','var(--green)');
@@ -2701,7 +2722,7 @@
     seisanSaveLocal();
     if(!CENTER_ENDPOINT){ seisanSetStatus('ローカル保存のみ','var(--muted)'); return; }
     if(seisanSaveTimer) clearTimeout(seisanSaveTimer);
-    _seisanDirty=true;
+    _seisanDirty=true; seisanEditRev++;
     seisanSetStatus('保存中…','var(--muted)');
     seisanSaveTimer=setTimeout(function(){
       var sendList=SEISAN.list;   // この時点の最新状態を送る
@@ -3847,7 +3868,8 @@
     // 圃場（本日実績の舟数に反映）：自分の未保存入力があるときは上書きしない
     if(d.hojo && !d.hojo.error && !_hojoDirty){ hojoApplyLive_(d.hojo); }
     // 生産者：自分の未保存入力があるときは上書きしない
-    if(d.seisan && !d.seisan.error && !_seisanDirty){ seisanApplyLive_(d.seisan); }
+    // 2026-10-20：取得を始めた後に入力した／始めた時点で保存が終わっていなかった場合も捨てる（約23秒遅れで届く古いデータがCやSを消していた）
+    if(d.seisan && !d.seisan.error && !seisanFetchStale_(d._seisanMark)){ seisanApplyLive_(d.seisan); }
     // ⑩ センターTODOマスタ＋本日のチェック状態（マスタに行を足すだけで全PCへ自動反映）
     if(d.todo && !d.todo.error){ todoApply_(d.todo); }
   }
@@ -3859,9 +3881,9 @@
     _bundleBusy = true;
     var cb='bundleCb_'+Date.now(); var s=document.createElement('script'); var done=false;
     var timer=setTimeout(function(){ if(!done){ done=true; _bundleBusy=false; window[cb]=function(){}; s.remove(); } }, 120000);
-    var rev=nzViewRev;
+    var rev=nzViewRev, sMark=seisanFetchMark_();
     window[cb]=function(d){ if(done) return; done=true; _bundleBusy=false; clearTimeout(timer);
-      d=d||{}; if(rev!==nzViewRev) delete d.nizukuri;   // 取得中に「3日表示／7日表示」等を押した＝古い日数の荷造り一覧で上書きしない
+      d=d||{}; if(rev!==nzViewRev) delete d.nizukuri; d._seisanMark=sMark;   // 取得中に「3日表示／7日表示」等を押した＝古い日数の荷造り一覧で上書きしない
       try{ centerApplyBundle_(d); }catch(e){} window[cb]=function(){}; s.remove(); };
     var q='type=bundle&days='+nzDaysWanted+'&callback='+cb;
     if(nzJumpDate) q+='&date='+encodeURIComponent(nzJumpDate);
