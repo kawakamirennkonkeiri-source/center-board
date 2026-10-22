@@ -2397,21 +2397,36 @@
   // GASへ保存（POST）。連打はデバウンスしてまとめる。
   var hojoSaveTimer=null;
   function hojoPushSave(){
+    if(centerDayStale_()){ centerDayReload_(); return; }   // 2026-10-22：開いたまま日付が変わった＝前の日に書き込まないよう読み込み直す
     hojoSaveLocal();
     if(!CENTER_ENDPOINT){ hojoSetStatus('ローカル保存のみ','var(--muted)'); return; }
     if(hojoSaveTimer) clearTimeout(hojoSaveTimer);
     _hojoDirty=true; hojoEditRev++;
     hojoSetStatus('保存中…','var(--muted)');
-    hojoSaveTimer=setTimeout(function(){
-      fetch(CENTER_ENDPOINT,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
-        body:JSON.stringify({action:'hojoSave',date:HOJO.date,fields:HOJO.fields})})
-        .then(function(r){return r.json();})
-        .then(function(d){ if(d&&d.ok){ _hojoDirty=false; var t=new Date(); hojoSetStatus('🟢 保存済み '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2),'var(--green)'); } else { hojoSetStatus('🟡 保存エラー（ローカルには保持）','#a76a00'); } })
-        .catch(function(){ hojoSetStatus('🟡 保存失敗（ローカルには保持）','#a76a00'); });
-    },700);
+    hojoSaveTimer=setTimeout(function(){ hojoSendNow_(false); },700);
   }
+  function hojoSendNow_(keepalive){
+    hojoSaveTimer=null;
+    fetch(CENTER_ENDPOINT,{method:'POST',keepalive:!!keepalive,headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'hojoSave',date:HOJO.date,fields:HOJO.fields})})
+      .then(function(r){return r.json();})
+      .then(function(d){ if(d&&d.ok){ _hojoDirty=false; var t=new Date(); hojoSetStatus('🟢 保存済み '+('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2),'var(--green)'); } else { hojoSetStatus('🟡 保存エラー（ローカルには保持）','#a76a00'); } })
+      .catch(function(){ hojoSetStatus('🟡 保存失敗（ローカルには保持）','#a76a00'); });
+  }
+  // 2026-10-22：舟数の直接入力は、打つ手が0.9秒止まったら自動保存（Enter・欄の外クリックを待たない＝そのまま再読み込み等で消えていた）
+  var hojoTypeTimer=null, hojoTypeFn=null;
+  function hojoFlushTyping_(){
+    if(hojoTypeTimer){ clearTimeout(hojoTypeTimer); hojoTypeTimer=null; }
+    var fn=hojoTypeFn; hojoTypeFn=null; if(fn) fn();
+  }
+  // ページを閉じる・再読み込みする時は、打ちかけ・保存待ちの分をその場で送る
+  window.addEventListener('pagehide', function(){
+    hojoFlushTyping_();
+    if(hojoSaveTimer && CENTER_ENDPOINT){ clearTimeout(hojoSaveTimer); hojoSendNow_(true); }
+  });
 
   function hojoAddField(){
+    hojoFlushTyping_();
     var inp=document.getElementById('hojo-newname'); if(!inp) return;
     var nm=(inp.value||'').trim(); if(!nm) return;
     if(HOJO.fields.some(function(f){return f.name===nm;})){ inp.value=''; hojoRender(); return; }  // 重複は無視
@@ -2420,16 +2435,21 @@
     hojoRender(); hojoPushSave();
   }
   function hojoBump(i, delta){
+    hojoFlushTyping_();   // 打ちかけの数字を先に確定してから足す
     var f=HOJO.fields[i]; if(!f) return;
     f.funes=Math.max(0,(Number(f.funes)||0)+delta);
     hojoRender(); hojoPushSave();
   }
-  function hojoSetVal(i, val){
+  function hojoSetVal(i, val, card){
     var f=HOJO.fields[i]; if(!f) return;
-    f.funes=Math.max(0,Math.round(Number(val)||0));
+    var nv=Math.max(0,Math.round(Number(val)||0));
+    if(card){ var fv=card.querySelector('.fval'); if(fv) fv.textContent=nv; }   // 大きい「◯舟」もすぐ書き換える
+    if(nv===(Number(f.funes)||0)) return;
+    f.funes=nv;
     hojoRenderTotals(); hojoPushSave();
   }
   function hojoDelField(i){
+    hojoFlushTyping_();
     var f=HOJO.fields[i]; if(!f) return;
     if((Number(f.funes)||0)>0 && !confirm('「'+f.name+'」（'+f.funes+'舟）を削除しますか？')) return;
     HOJO.fields.splice(i,1);
@@ -2443,6 +2463,7 @@
   }
   function hojoRender(){
     var wrap=document.getElementById('hojo-list'); if(!wrap) return;
+    hojoFlushTyping_();   // 描き直しで入力欄が作り直される前に、打ちかけの数字を確定
     wrap.innerHTML='';
     HOJO.fields.forEach(function(f,i){
       var card=document.createElement('div'); card.className='hojo-card';
@@ -2462,7 +2483,13 @@
       btns[1].onclick=function(){ hojoBump(i, 1); };
       btns[2].onclick=function(){ hojoBump(i, 5); };
       var fedit=card.querySelector('.fedit');
-      fedit.addEventListener('change', function(){ hojoSetVal(i, fedit.value); });
+      fedit.addEventListener('input', function(){
+        if(hojoTypeTimer) clearTimeout(hojoTypeTimer);
+        if(fedit.value===''){ hojoTypeTimer=null; hojoTypeFn=null; return; }   // 消して打ち直している途中は保存しない
+        hojoTypeFn=function(){ hojoSetVal(i, fedit.value, card); };
+        hojoTypeTimer=setTimeout(hojoFlushTyping_, 900);
+      });
+      fedit.addEventListener('change', function(){ hojoTypeFn=null; if(hojoTypeTimer){ clearTimeout(hojoTypeTimer); hojoTypeTimer=null; } hojoSetVal(i, fedit.value, card); });
       wrap.appendChild(card);
     });
     hojoRenderTotals();
@@ -2731,6 +2758,7 @@
   }
   var seisanSaveTimer=null;
   function seisanPushSave(){
+    if(centerDayStale_()){ centerDayReload_(); return; }   // 2026-10-22：開いたまま日付が変わった＝前の日に書き込まないよう読み込み直す
     seisanSaveLocal();
     if(!CENTER_ENDPOINT){ seisanSetStatus('ローカル保存のみ','var(--muted)'); return; }
     if(seisanSaveTimer) clearTimeout(seisanSaveTimer);
@@ -3904,6 +3932,17 @@
     document.head.appendChild(s);
   }
   setInterval(centerPollBundle, 30*1000);   // ★ 30秒ごとに全液晶をリンク（1回のGAS呼び出しで全データ取得）
+  // ★2026-10-22：圃場・生産者の日付はページを開いた時に決まる → 開きっぱなしで日をまたぐと前の日の記録に書き込んでいた。
+  //   日付が変わっていたらページを読み込み直す（1分ごと＋画面に戻った時＋保存の直前に確認）。
+  function centerDayStale_(){
+    return !!((typeof HOJO!=='undefined' && HOJO.date && HOJO.date!==hojoTodayStr()) ||
+              (typeof SEISAN!=='undefined' && SEISAN.date && SEISAN.date!==seisanTodayStr()));
+  }
+  var _centerDayReloading=false;
+  function centerDayReload_(){ if(_centerDayReloading) return; _centerDayReloading=true; location.reload(); }
+  function centerDayCheck_(){ if(centerDayStale_()) centerDayReload_(); }
+  setInterval(centerDayCheck_, 60*1000);
+  document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='visible') centerDayCheck_(); });
 
   // ① ヘッダーの日付・時刻を実際の値でリアルタイム表示（毎分更新）
   function haichiUpdateClock(){
