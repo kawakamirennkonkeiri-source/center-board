@@ -317,7 +317,8 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
   <b>ある資材を使い切ったら／決めた日になったら／決めた枚数を使ったら、次の資材へ切り替えたい</b>ときに使います（例：真空袋の銘柄切替）。<br>
   ・<b>発注しない（使い切り）</b>にチェックすると、その資材は「発注推奨」を出しません。在庫が尽きかけると代わりに<b>切替のお知らせ</b>を出します。<br>
   ・<b>切替日</b>＝この日以降になったら切替をお知らせ。<b>○枚使ったら</b>＝この列の数を入れた時点の在庫から、その枚数を使ったら切替をお知らせ。<br>
-  ・<b>次に使う資材</b>を選び、条件がそろったら「▶ 今すぐ切替」を押すと、BOM（真空区分などの袋の割り当て）が次の資材に付け替わります。<br>
+  ・<b>お知らせは切替予定日の5日前から</b>出ます。在庫予測は切替予定どおりに次の資材へ繰り越して計算します（実際の在庫は切替ボタンを押すまで動きません）。<br>
+  ・実際に切り替えたら、お知らせか「▶ 今すぐ切替」を押し、<b>切替日と担当者名</b>を入力します。BOM（真空区分などの袋の割り当て）が次の資材に付け替わり、下の履歴に残ります。<br>
   ・在庫がまだ<b>未入力</b>の資材は、右の「🔢在庫」ボタンで実数を入れられます。
   </div>
   <div class="hint" id="switchChainHint" style="font-weight:600"></div>
@@ -332,6 +333,16 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
         <th class="l">操作</th>
       </tr></thead>
       <tbody></tbody>
+    </table>
+  </div>
+  <div class="sec-title" style="margin-top:18px">🕘 切替履歴</div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th class="l">資材</th><th class="l">使用開始</th><th class="l">使用終了</th><th>日数</th><th class="l">切替理由</th>
+        <th>終了時の残数</th><th class="l">切替先</th><th class="l">担当</th><th class="l">操作</th>
+      </tr></thead>
+      <tbody id="switchLog"></tbody>
     </table>
   </div>
 </section>
@@ -417,6 +428,26 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
     <small class="help">月の途中でも、いま数えた実際の在庫数に合わせられます。<b>棚卸の確定（破棄率の学習・起点日の更新）は行いません</b>。<br>入力すると、この値を起点に今後の使用分を差し引いて計算します。</small>
   </div>
   <div class="dlg-f"><button class="btn sec" value="cancel">キャンセル</button><button class="btn" id="c_save" value="ok">この在庫に合わせる</button></div>
+</form></dialog>
+
+<!-- 切替の確認画面（切替日・担当者を入れて履歴に残す） -->
+<dialog id="switchDlg"><form method="dialog">
+  <div class="dlg-h">🔁 資材の切替</div>
+  <div class="dlg-b">
+    <div id="sw_info"></div>
+    <div class="row" style="margin:0">
+      <div class="field"><label>実際の切替日 <span style="color:var(--danger)">※必須</span></label><input type="date" id="sw_date"></div>
+      <div class="field"><label>担当者名 <span style="color:var(--danger)">※必須</span></label><input id="sw_by" placeholder="例：林田"></div>
+    </div>
+    <div class="row" style="margin:0">
+      <div class="field"><label>切替理由</label><select id="sw_reason"></select></div>
+      <div class="field" style="flex:1"><label>メモ（手動のときは必須）</label><input id="sw_memo" style="width:100%"></div>
+    </div>
+    <label style="display:block;margin-top:8px"><input type="checkbox" id="sw_oldNo"> <span id="sw_oldName"></span> は今後発注しない</label>
+    <label id="sw_newOpenWrap" style="display:block;margin-top:4px"><input type="checkbox" id="sw_newOpen"> <span id="sw_newName"></span> の「発注しない」を解除する</label>
+    <small class="help">使用量は、このボタンを押した時点で旧資材と新資材に分かれます。実際に切り替えた日に押してください。</small>
+  </div>
+  <div class="dlg-f"><button class="btn sec" value="cancel">キャンセル</button><button class="btn" id="sw_save" value="ok">切替して履歴に残す</button></div>
 </form></dialog>
 
 <!-- ③ COVER-DAYS CRITERION DIALOG（○日分の在庫が確保できているか） -->
@@ -575,6 +606,20 @@ function load(){ try{S=JSON.parse(localStorage.getItem(LS));}catch(e){} if(!S)S=
   S.skus.forEach(sk=>{ if(/ギフト/.test(sk.tori+sk.kubun)) sk.exc=true; });   // ギフトは入力不要＝毎回除外扱いに正規化（既存データにも効く）
   gloveAutoMap();
   migrateV3();
+  normSwitch();
+}
+// 切替履歴（switchLog）・切替前後の使用量の分け目（switchBase）の正規化＋分かっている過去の履歴の初期登録（1回だけ）
+function normSwitch(){
+  S.switchLog=S.switchLog||[]; S.switchBase=S.switchBase||{};
+  if(S.switchLogSeeded)return;
+  S.switchLogSeeded=1;
+  const T='M1786351584957', has=id=>(S.materials||[]).some(m=>m.id===id);
+  const seeds=[];
+  if(has('M11')&&has(T)) seeds.push({id:'SWSEED2',fromId:'M11',toId:T,date:'',dateNote:'9/29以前',at:'2026-11-05',by:'（記録なし）',reason:'manual',
+    memo:'9/29の棚卸でトレード真空袋の残が0。11/2にBOMが真空袋に戻っていたのを無地へ修正。正確な切替日は不明',fromStock:null,skus:[],seed:1});
+  if(has('M17')&&has(T)) seeds.push({id:'SWSEED1',fromId:'M17',toId:T,date:'',dateNote:'8/31以前',at:'2026-11-05',by:'（記録なし）',reason:'manual',
+    memo:'8/31の棚卸で残100。正確な切替日は不明',fromStock:100,skus:[],seed:1});
+  S.switchLog=S.switchLog.concat(seeds);
 }
 // 設定のGAS URLを、電子黒板と同じ既定のURLに戻す
 function resetGasUrl(){
@@ -691,9 +736,14 @@ function gloveNoSizeTotal(){
 function theoreticalUsage(){
   const use={}; S.materials.forEach(m=>use[m.id]=0);
   S.skus.forEach(sk=>{ if(sk.exc)return;
+    // 切替で確定した使用量（切替前の分は旧資材に固定）。base＝その資材を数え始めた箱数
+    const sb=S.switchBase&&S.switchBase[sk.key];
+    if(sb&&sb.charged){ for(const mid in sb.charged) use[mid]=(use[mid]||0)+Number(sb.charged[mid]||0); }
     const boxes=effFunes(sk); if(!boxes)return;
     const bom=S.boms[sk.key]; if(!bom)return;
-    for(const mid in bom){const g=Number(bom[mid]||0);if(g)use[mid]=(use[mid]||0)+boxes*g;}
+    for(const mid in bom){const g=Number(bom[mid]||0);
+      const from=sb&&sb.base?Number(sb.base[mid]||0):0;
+      if(g)use[mid]=(use[mid]||0)+Math.max(0,boxes-from)*g;}
   });
   // ① 手袋：起点日〜基準日の出勤人数×枚数を理論使用量に足す（BOMには載せない＝荷造数と無関係のため）
   const g=gloveUsageByMat(S.settings.startDate,S.settings.baseDate||todayStr());
@@ -721,6 +771,54 @@ function futureDemandByMat(){
   for(const mid in g){ (map[mid]=map[mid]||{}); for(const d in g[mid]) map[mid][d]=(map[mid][d]||0)+g[mid][d]; }
   return map;
 }
+// 切替予定どおりに今後の使用を次の資材へ繰り越す。戻り値＝{map:繰り越し後の日別使用, plans:{資材ID:{date,why,toId}}}
+//   使い切り（発注しない）＝在庫ぶんまで／切替日＝前日まで／○枚＝残り枚数まで。あふれた分は同じ日から次の資材へ。
+function planSwitches(fmap,use,rec){
+  const avail={},qtyLeft={},map={},plans={},cur={},seen={};
+  S.materials.forEach(m=>{
+    const stock=Number(m.initStock||0)+(rec[m.id]||0)-(use[m.id]||0)+Number(m.stockAdj||0);
+    avail[m.id]=(stock+Number(m.hinodeStock||0))/(1+Number(m.scrapRate||0)/100);
+    if(Number(m.switchAfterQty||0)>0){
+      const qBase=(m.switchQtyBase!=null?Number(m.switchQtyBase):Number(m.initStock||0));
+      qtyLeft[m.id]=Number(m.switchAfterQty)-(qBase-stock);
+    }
+  });
+  const roots=Object.keys(fmap); const dateSet={};
+  roots.forEach(id=>{ cur[id]=id; seen[id]={[id]:1}; Object.keys(fmap[id]).forEach(d=>dateSet[d]=1); });
+  Object.keys(dateSet).sort().forEach(d=>{
+    roots.forEach(root=>{
+      let q=Number(fmap[root][d]||0);
+      while(q>1e-9){
+        const c=cur[root], m=matById(c);
+        const nx=(m&&m.nextMatId&&matById(m.nextMatId)&&!seen[root][m.nextMatId])?m.nextMatId:null;
+        let cap=Infinity, why='';
+        if(nx){
+          if(m.switchDate&&d>=m.switchDate){ cap=0; why='date'; }
+          else{
+            if(qtyLeft[c]!=null){ cap=Math.max(0,qtyLeft[c]); why='qty'; }
+            if(m.noReorder&&Math.max(0,avail[c])<cap){ cap=Math.max(0,avail[c]); why='stock'; }
+          }
+        }
+        const take=Math.min(q,cap);
+        if(take>0){ (map[c]=map[c]||{}); map[c][d]=(map[c][d]||0)+take;
+          if(avail[c]!=null)avail[c]-=take; if(qtyLeft[c]!=null)qtyLeft[c]-=take; q-=take; }
+        if(q>1e-9){
+          if(!plans[c]) plans[c]={date:why==='date'?m.switchDate:d,why,toId:nx};
+          if(avail[c]<0){ (map[nx]=map[nx]||{}); map[nx][d]=(map[nx][d]||0)-avail[c]; avail[nx]+=avail[c]; avail[c]=0; }   // 切替の押し忘れで足りなかった分も次の資材から引く
+          seen[root][nx]=1; cur[root]=nx;
+        }
+      }
+    });
+  });
+  return {map,plans};
+}
+// 今BOMで使われている資材（＝使用中）
+function matsInBom(){ const set={};
+  S.skus.forEach(sk=>{ if(sk.exc)return; const bom=S.boms[sk.key]; if(!bom)return;
+    for(const mid in bom){ if(Number(bom[mid]||0)) set[mid]=1; } });
+  return set; }
+const SWITCH_NOTICE_DAYS=5;   // 切替予定日の何日前からお知らせするか
+const SWITCH_WHY={date:'切替日',qty:'枚数到達',stock:'使い切り',zero:'在庫0'};
 function addDaysStr(dateStr,n){ const d=new Date(dateStr); d.setDate(d.getDate()+n); const p=x=>String(x).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
 function openOrderOf(mid){ // 未納品の最新発注
   const os=S.orders.filter(o=>o.materialId===mid&&!o.deliveredDate);
@@ -730,7 +828,8 @@ function daysSpan(){ try{const a=new Date(S.settings.startDate),b=new Date(S.set
   return Math.max(1,Math.round((b-a)/86400000)+1);}catch(e){return 1;} }
 function computeStock(){
   const use=theoreticalUsage(), rec=receivedByMat(), days=daysSpan(), safety=Number(S.settings.safetyDays||0);
-  const fmap=futureDemandByMat(); const base=S.settings.baseDate||todayStr();
+  const sim=planSwitches(futureDemandByMat(),use,rec), fmap=sim.map, inBom=matsInBom();
+  const base=S.settings.baseDate||todayStr();
   return S.materials.map(m=>{
     const theo=use[m.id]||0;
     const scrap=theo*(Number(m.scrapRate||0)/100);   // 破棄見込み＝発注判定の「消費予測」にだけ使う（在庫からは引かない）
@@ -750,7 +849,7 @@ function computeStock(){
     if(fd){ const fdates=Object.keys(fd).sort(); hasFuture=fdates.length>0;
       futureTotal=fdates.reduce((a,d)=>a+fd[d],0);
       let run=eff;   // 現在庫＋日野出保管から日別に消化
-      for(const d of fdates){ run -= fd[d]*(1+Number(m.scrapRate||0)/100); if(run<0){ runoutDate=d; break; } }
+      for(const d of fdates){ run -= fd[d]*(1+Number(m.scrapRate||0)/100); if(run<-1e-6){ runoutDate=d; break; } }
       if(runoutDate) runoutDays=Math.round((new Date(runoutDate)-new Date(base))/86400000);
     }
     let warn=false, periodicDue=false, periodicNext=null;
@@ -765,22 +864,28 @@ function computeStock(){
       warn = !!(runoutDate && runoutDate <= addDaysStr(base, Number(m.leadDays||0)+safety));
     }
     else { warn = (daily>0 ? stockDays<=thresholdDays : eff<=0); }   // auto（今後予定が無い時は過去平均で判定。実質在庫=現在庫＋日野出）
-    // 「発注しない（使い切り）」資材：発注推奨を出さず、在庫が尽きかけたら後継への切替を促す
-    // ＋ 切替条件（切替日／○枚使ったら）でも切替をお知らせ
-    let switchDue=false, switchReason='';
-    const nextSet=!!m.nextMatId;
-    if(nextSet){
-      if(m.switchDate && base >= m.switchDate){ switchDue=true; switchReason='切替日 '+m.switchDate; }
-      if(Number(m.switchAfterQty||0)>0){
+    // 切替のお知らせ：BOMで使用中の資材だけ。切替予定日の SWITCH_NOTICE_DAYS 日前から、切替ボタンを押すまで出し続ける
+    let switchDue=false, switchCode='', switchOverdue=false;
+    const inUse=!!inBom[m.id];
+    const nextSet=!!(m.nextMatId&&matById(m.nextMatId));
+    const plan=sim.plans[m.id]||null;
+    let planDate=plan?plan.date:null, planWhy=plan?plan.why:'';
+    if(nextSet&&m.switchDate&&(!planDate||m.switchDate<planDate)){ planDate=m.switchDate; planWhy='date'; }
+    if(m.noReorder&&!planDate){
+      if(runoutDate){ planDate=runoutDate; planWhy='stock'; }
+      else if(!hasFuture&&daily>0&&isFinite(stockDays)){ planDate=addDaysStr(base,Math.floor(stockDays)); planWhy='stock'; }
+    }
+    if(inUse){
+      if(nextSet&&Number(m.switchAfterQty||0)>0){
         const qBase=(m.switchQtyBase!=null?Number(m.switchQtyBase):Number(m.initStock||0));
-        const used=qBase-stock;
-        if(used>=Number(m.switchAfterQty)){ switchDue=true; switchReason=switchReason||(fmt(Number(m.switchAfterQty))+'枚使用'); }
+        if(qBase-stock>=Number(m.switchAfterQty)){ switchDue=true; switchCode='qty'; }
       }
+      if(m.noReorder&&stock<=0){ switchDue=true; switchCode=switchCode||'zero'; }
+      if(planDate&&base>=addDaysStr(planDate,-SWITCH_NOTICE_DAYS)){ switchDue=true; switchCode=switchCode||planWhy; }
+      switchOverdue=!!(switchDue&&planDate&&planDate<base);
     }
-    if(m.noReorder){
-      if(!m.switched && (warn||periodicDue||stock<=0)){ switchDue=true; switchReason=switchReason||'在庫僅少'; }
-      warn=false; periodicDue=false;
-    }
+    const switchReason=switchCode?SWITCH_WHY[switchCode]:'';
+    if(m.noReorder){ warn=false; periodicDue=false; }
     /* ③ 別基準：「○日分（既定45日）の在庫が確保できているか」＝消耗品向け。
        1日あたりの使用量は、手入力（dailyUse）があればそれ、無ければ日次平均（daily）。
        この基準は他のアラート方式（定期／残数／発注書連動）に“足して”効く。 */
@@ -808,7 +913,7 @@ function computeStock(){
     let need=Math.max(0,Math.ceil(reorder+daily*safety-eff)); // 補充目安（次の安全在庫まで。日野出保管も差し引く）
     if(coverNeed>need)need=coverNeed;                         // ③ 45日分に足りない量の方が多ければそちらを採用
     if(m.minLot&&need>0)need=Math.ceil(need/m.minLot)*m.minLot;
-    return {m,theo,scrap,received:rec[m.id]||0,stock,theoStock:stock,hinode,eff,daily,stockDays,thresholdDays,reorder,warn,need,off,mode,periodicDue,periodicNext,switchDue,switchReason,
+    return {m,theo,scrap,received:rec[m.id]||0,stock,theoStock:stock,hinode,eff,daily,stockDays,thresholdDays,reorder,warn,need,off,mode,periodicDue,periodicNext,switchDue,switchReason,switchCode,switchOverdue,inUse,nextSet,planDate,planWhy,
       hasFuture,runoutDate,runoutDays,futureTotal,
       coverOn,coverDays,coverWarn,coverHave,coverDaily,coverSrc,
       hasSeason:hasSeason(m),suggest:seasonSuggest(m),order:openOrderOf(m.id)};
@@ -924,7 +1029,8 @@ function renderDash(){
     if(r.suggest==='off')items.push(`<span class="pill deliver" style="cursor:pointer" onclick="toggleSeason('${r.m.id}')">🕒 ${r.m.name} はそろそろ季節終わり → 季節外にする</span>`);
     if(r.suggest==='on')items.push(`<span class="pill" style="background:#dcfce7;color:#15803d;cursor:pointer" onclick="toggleSeason('${r.m.id}')">🌱 ${r.m.name} のシーズンです → シーズンに戻す</span>`);
     if(r.switchDue){const nx=r.m.nextMatId?matById(r.m.nextMatId):null;
-      items.push(`<span class="pill reorder" style="cursor:pointer" onclick="switchView('switch')">🔁 ${r.m.name} 切替時期${r.switchReason?'（'+r.switchReason+'）':''}${nx?' → '+nx.name+'へ':'（切替先未設定）'}</span>`);}
+      const when=r.switchOverdue?('⏰ '+esc(r.m.name)+' 切替未完了（予定 '+r.planDate.slice(5)+'）'):(r.planDate?('🔁 '+esc(r.m.name)+' 切替予定 '+r.planDate.slice(5)+'（'+r.switchReason+'）'):('🔁 '+esc(r.m.name)+' 切替時期（'+r.switchReason+'）'));
+      items.push(`<span class="pill reorder" style="cursor:pointer" onclick="${nx?`openSwitchDlg('${r.m.id}')`:`switchView('switch')`}" title="クリックして実際の切替日と担当者名を入力">${when}${nx?' → '+esc(nx.name)+'へ':'（切替先未設定）'}</span>`);}
   });
   if(items.length){ab.className='alertbar';ab.innerHTML='<h2>⚠️ 要対応 '+items.length+'件</h2><div class="items">'+items.join('')+'</div>';}
   else{ab.className='alertbar none';ab.innerHTML='<h2>✅ アラートなし</h2><div class="items"></div>';}
@@ -939,11 +1045,13 @@ function renderDash(){
   const tb=document.querySelector('#dashTable tbody');
   tb.innerHTML=rows.map(r=>{
     // 在庫の余裕バー：発注書の今後予定があれば「在庫切れまでの日数」、無ければ過去平均の在庫日数
-    const refDays = r.hasFuture ? (r.runoutDate? r.runoutDays : r.thresholdDays*2) : r.stockDays;
+    const planDays = (r.inUse&&r.nextSet&&r.planDate) ? Math.round((new Date(r.planDate)-new Date(S.settings.baseDate))/86400000) : null;
+    const refDays = planDays!=null ? planDays : (r.hasFuture ? (r.runoutDate? r.runoutDays : r.thresholdDays*2) : r.stockDays);
     let ratio=isFinite(refDays)?Math.min(1,Math.max(0,refDays)/(r.thresholdDays*2||1)):1;
     let barColor=r.warn?'var(--danger)':(refDays<r.thresholdDays*1.4?'var(--warn)':'var(--ok)');
     let projTxt;
-    if(r.hasFuture){ projTxt = r.runoutDate ? ('あと'+fmt(r.runoutDays)+'日<br><span class="muted" style="font-size:11px">切れ予定 '+r.runoutDate.slice(5)+'</span>') : '<span class="state-ok">予定内は充足</span>'; }
+    if(planDays!=null){ projTxt='あと'+fmt(planDays)+'日<br><span class="muted" style="font-size:11px">切替予定 '+r.planDate.slice(5)+'</span>'; }
+    else if(r.hasFuture){ projTxt = r.runoutDate ? ('あと'+fmt(r.runoutDays)+'日<br><span class="muted" style="font-size:11px">切れ予定 '+r.runoutDate.slice(5)+'</span>') : '<span class="state-ok">予定内は充足</span>'; }
     else { projTxt = isFinite(r.stockDays)?fmt(r.stockDays)+'日<br><span class="muted" style="font-size:11px">(過去平均)</span>':'—'; }
     const showAuto = (r.mode==='auto'||r.coverOn) && !r.off;   // 日次平均・在庫日数・余裕・発注点は auto と「○日分の基準」を付けた資材で表示
     let action,cls;
@@ -961,12 +1069,12 @@ function renderDash(){
       // 発注しない（使い切り）資材：発注推奨を出さず、後継への切替を促す
       const nx=r.m.nextMatId?matById(r.m.nextMatId):null;
       if(r.switchDue){ cls='state-warn';
-        action='🔁 在庫僅少（残'+fmt(r.stock)+'）'+(nx?' → <b>'+nx.name+'</b>へ':'')+' '+
-          (nx?'<button class="btn small" onclick="switchToNext(\''+r.m.id+'\')">▶ 切替</button> ':'<span class="muted">切替先未設定</span> ');
-      }else if(r.m.switched){ cls='muted';
-        action='✅ 切替済み（残'+fmt(r.stock)+'）'+(nx?' <span class="muted">→ '+nx.name+'</span>':'')+' ';
+        action=(r.switchOverdue?'⏰ 切替未完了':'🔁 切替'+(r.planDate?'予定 '+r.planDate.slice(5):'時期'))+'（'+r.switchReason+'・残'+fmt(r.stock)+'）'+(nx?' → <b>'+esc(nx.name)+'</b>へ':'')+' '+
+          (nx?'<button class="btn small" onclick="openSwitchDlg(\''+r.m.id+'\')">▶ 切替</button> ':'<span class="muted">切替先未設定</span> ');
+      }else if(!r.inUse){ cls='muted';
+        action='⏸ 待機中（残'+fmt(r.stock)+'）'+(nx?' <span class="muted">次: '+esc(nx.name)+'</span>':'')+' ';
       }else{ cls='muted';
-        action='📦 使い切り運用（残'+fmt(r.stock)+'）'+(nx?' <span class="muted">次: '+nx.name+'</span>':'')+' ';
+        action='📦 使い切り運用（残'+fmt(r.stock)+'）'+(nx?' <span class="muted">次: '+esc(nx.name)+'</span>':'')+' ';
       }
     }else if(r.mode==='periodic'){
       if(r.periodicDue){ cls='state-warn';
@@ -993,7 +1101,7 @@ function renderDash(){
     }
     // 使い切り以外でも切替条件（日付/枚数）がそろったら切替ボタンを出す
     if(!r.off && r.switchDue && !r.m.noReorder && r.m.nextMatId){ const nx=matById(r.m.nextMatId);
-      if(nx) action+=' <button class="btn small" onclick="switchToNext(\''+r.m.id+'\')">🔁 '+esc(nx.name)+'へ切替</button>';
+      if(nx) action+=' <button class="btn small" onclick="openSwitchDlg(\''+r.m.id+'\')">🔁 '+esc(nx.name)+'へ切替</button>';
     }
     // 日野出保管分の注記／現在庫が心細い時は「日野出から補充」を促す（＝日野出があるうちは発注推奨にしない）
     if(!r.off && isHinode(r.m) && (r.hinode>0 || r.stock<=0)){
@@ -1376,6 +1484,7 @@ function commitStocktake(){
   createMonthlyBackup(month,by,date);
   // 使用(荷造数)は新期間ぶんに一旦クリア（実データはGAS再取得／手入力で入れ直し）
   S.funes={};
+  S.switchBase={};   // 切替前後の分け目は今期限り＝翌期はそのときのBOMで最初から数える
   save();cloudPushNow();
   alert(updated+'品目を確定しました（担当：'+by+'）。基準在庫を更新し、起点日を '+S.settings.startDate+' にしました。\n\n💾 '+month+' のバックアップを保存しました（バックアップタブで確認・復元できます）。'+(shareEnabled()?'\n\n☁ ほかのPCにも送信しています…':''));
   initUI();switchView('dash');
@@ -1471,7 +1580,9 @@ function renderBackups(){
 function applySnapshot(obj){
   const g=S.settings.gasUrl,on=S.settings.shareOn,dev=S.settings.deviceName;
   const keepBackups=S.backups||[], keepCloud=S.cloud||{rev:0,savedAt:'',savedBy:''};
+  const keepLog=S.switchLog||[];   // 切替履歴は復元しても消さない
   S=obj; S.settings=S.settings||{};
+  S.switchLog=keepLog; S.switchLogSeeded=1; normSwitch();
   S.settings=Object.assign({safetyDays:30,scrapAlertPct:10},S.settings);
   S.settings.gasUrl=g; S.settings.shareOn=on; S.settings.deviceName=dev;
   S.settings.baseDate=todayStr();   // 基準日は復元後も「今日」固定
@@ -1645,30 +1756,104 @@ function setMatSwitchQty(id,v){const m=matById(id);if(!m)return;
   else { m.switchAfterQty=0; m.switchQtyBase=null; }
   save();recalcAll();renderSwitch();
 }
-// BOM上の from資材の割り当てを to資材へ付け替え（真空区分などの袋の差し替え）
-function switchMaterialBom(fromId,toId){
-  let n=0;
-  for(const key in S.boms){const bom=S.boms[key];
-    if(bom[fromId]!=null){ const q=Number(bom[fromId]||0); if(q){ bom[toId]=Number(bom[toId]||0)+q; n++; } delete bom[fromId]; }
-  }
-  return n;
+// 1商品のBOMで from資材→to資材 へ付け替える。ここまでの使用量は旧資材に確定し、ここから先を新資材で数える
+function switchMoveSku(key,fromId,toId,qty){
+  const bom=S.boms[key]; if(!bom)return 0;
+  const g=Number(bom[fromId]||0);
+  if(!g){ delete bom[fromId]; return 0; }
+  const q=Math.min(g,qty==null?g:Number(qty)); if(!(q>0))return 0;
+  const sk=S.skus.find(x=>x.key===key);
+  const boxes=(sk&&!sk.exc)?effFunes(sk):0;
+  const sb=S.switchBase[key]=S.switchBase[key]||{base:{},charged:{}};
+  [fromId,toId].forEach(mid=>{
+    const cg=Number(bom[mid]||0), done=Number(sb.base[mid]||0);
+    if(cg) sb.charged[mid]=Number(sb.charged[mid]||0)+Math.max(0,boxes-done)*cg;
+    sb.base[mid]=boxes;
+  });
+  if(g-q>0) bom[fromId]=g-q; else delete bom[fromId];
+  bom[toId]=Number(bom[toId]||0)+q;
+  return q;
 }
-function switchToNext(fromId){
-  const m=matById(fromId); const to=m&&m.nextMatId?matById(m.nextMatId):null;
-  if(!m||!to){ alert('切替先の資材が設定されていません。切替タブ（🔁）で「次に使う資材」を選んでください。'); return; }
-  if(!confirm(m.name+' の使用を「'+to.name+'」へ切り替えます。\n・BOM（真空区分などの袋）を '+to.name+' に付け替え\n・'+m.name+' は「発注しない（使い切り）」のまま残します\nよろしいですか？'))return;
-  const n=switchMaterialBom(fromId,to.id);
-  m.noReorder=1;   // 旧資材は今後発注しない
-  m.switchDate=''; m.switchAfterQty=0; m.switchQtyBase=null;   // 切替条件はリセット（もう切替済み）
-  m.switched=1;    // 切替済み＝以後「切替時期」アラートは出さない
-  save();recalcAll();renderBom();renderMat();renderSwitch();
-  alert(to.name+' に切り替えました（BOM '+n+'件を付け替え）。\n\n'+to.name+' の在庫がまだなら「🔢在庫」で実数を入れてください。');
+const SWITCH_REASONS={date:'切替日になった',qty:'指定枚数を使った',zero:'在庫0（使い切り）',low:'在庫僅少',manual:'手動',return:'元に戻す'};
+let _sw=null;
+// お知らせ・▶切替ボタン・履歴の「戻す」から開く確認画面。opt.toId / opt.skus / opt.returnOf は「戻す」用
+function openSwitchDlg(fromId,opt){
+  opt=opt||{};
+  const m=matById(fromId), to=matById(opt.toId||(m&&m.nextMatId));
+  if(!m||!to){ alert('切替先の資材が設定されていません。切替タブ（🔁）で「次に使う資材」を選んでください。'); switchView('switch'); return; }
+  const r=computeStock().find(x=>x.m.id===fromId);
+  const skus=opt.skus||Object.keys(S.boms).filter(k=>Number(S.boms[k][fromId]||0)).map(k=>({key:k,qty:null}));
+  _sw={fromId,toId:to.id,skus,returnOf:opt.returnOf||''};
+  const code=opt.returnOf?'return':(r.switchCode==='stock'?(r.stock<=0?'zero':'low'):(r.switchCode||'manual'));
+  document.getElementById('sw_info').innerHTML='<b>'+esc(m.name)+'</b> → <b>'+esc(to.name)+'</b><br><span class="muted">'+esc(m.name)+'の今の残数：'+fmt(r.stock)+' '+esc(m.unit||'')+
+    '／付け替える商品：'+skus.length+'件'+(r.planDate?'／切替予定：'+r.planDate:'')+'</span>';
+  const today=S.settings.baseDate||todayStr(), d=document.getElementById('sw_date');
+  d.value=today; d.max=today;
+  document.getElementById('sw_by').value='';
+  document.getElementById('sw_memo').value='';
+  document.getElementById('sw_reason').innerHTML=Object.keys(SWITCH_REASONS).filter(k=>k!=='return'||opt.returnOf).map(k=>'<option value="'+k+'"'+(k===code?' selected':'')+'>'+SWITCH_REASONS[k]+'</option>').join('');
+  document.getElementById('sw_oldNo').checked=true;
+  document.getElementById('sw_oldName').textContent=m.name;
+  const openWrap=document.getElementById('sw_newOpenWrap');
+  openWrap.style.display=to.noReorder?'':'none';
+  document.getElementById('sw_newName').textContent=to.name;
+  // 切替先がさらに次へ使い切る設定なら「発注しない」を残す。それ以外は発注対象に戻す
+  document.getElementById('sw_newOpen').checked=!(to.noReorder&&to.nextMatId&&to.nextMatId!==fromId);
+  document.getElementById('switchDlg').showModal();
 }
-// 切替済みフラグを取り消す（誤操作の巻き戻し用。BOM付け替えはやり直さない＝「切替時期」アラートだけ復活）
-function undoSwitched(id){
-  const m=matById(id); if(!m)return;
-  if(!confirm(m.name+' の「切替済み」を取り消します。（在庫が僅少なら再び「切替時期」のアラートが出るようになります）'))return;
-  m.switched=0; save();recalcAll();renderSwitch();
+document.getElementById('sw_save').addEventListener('click',(e)=>{
+  if(!_sw){e.preventDefault();return;}
+  const date=document.getElementById('sw_date').value, by=document.getElementById('sw_by').value.trim();
+  const reason=document.getElementById('sw_reason').value, memo=document.getElementById('sw_memo').value.trim();
+  if(!date){ e.preventDefault(); alert('実際の切替日を入れてください。'); return; }
+  if(date>(S.settings.baseDate||todayStr())){ e.preventDefault(); alert('切替日に未来の日付は入れられません。\n実際に切り替えた日に入力してください。'); return; }
+  if(!by){ e.preventDefault(); alert('担当者名を入れてください。'); document.getElementById('sw_by').focus(); return; }
+  if(reason==='manual'&&!memo){ e.preventDefault(); alert('手動の切替は、メモに理由を書いてください。'); document.getElementById('sw_memo').focus(); return; }
+  commitSwitch({date,by,reason,memo,oldNo:document.getElementById('sw_oldNo').checked,newOpen:document.getElementById('sw_newOpen').checked});
+});
+function commitSwitch(v){
+  const m=matById(_sw.fromId), to=matById(_sw.toId);
+  const r=computeStock().find(x=>x.m.id===m.id);
+  const moved=[];
+  _sw.skus.forEach(s=>{ const q=switchMoveSku(s.key,m.id,to.id,s.qty); if(q)moved.push({key:s.key,qty:q}); });
+  m.noReorder=v.oldNo?1:0;
+  if(to.noReorder&&v.newOpen) to.noReorder=0;
+  m.switchDate=''; m.switchAfterQty=0; m.switchQtyBase=null;   // 切替条件はここで終わり（次に使うときは設定し直す）
+  m.switched=0; to.switched=0;
+  S.switchLog.unshift({id:'SW'+Date.now(),fromId:m.id,toId:to.id,date:v.date,at:nowStr(),by:v.by,reason:v.reason,memo:v.memo,
+    fromStock:Math.round(r.stock),skus:moved,returnOf:_sw.returnOf||''});
+  _sw=null;
+  save();cloudPushNow();recalcAll();renderBom();renderMat();renderSwitch();
+  alert(to.name+' に切り替えました（商品 '+moved.length+'件を付け替え）。切替タブの履歴に記録しました。\n\n'+to.name+' の在庫がまだなら「🔢在庫」で実数を入れてください。');
+}
+// 履歴の「戻す」＝その切替で付け替えた商品だけを元の資材へ戻す（戻した操作も履歴に残る）
+function openSwitchReturn(id){
+  const e=S.switchLog.find(x=>x.id===id); if(!e)return;
+  const skus=(e.skus||[]).filter(s=>S.boms[s.key]&&Number(S.boms[s.key][e.toId]||0));
+  if(!skus.length){ alert('戻せる商品がありません（すでに別の資材へ切り替わっています）。'); return; }
+  openSwitchDlg(e.toId,{toId:e.fromId,skus,returnOf:e.id});
+}
+function renderSwitchLog(){
+  const el=document.getElementById('switchLog'); if(!el)return;
+  const log=S.switchLog||[], inBom=matsInBom();
+  const nm=id=>{const m=matById(id);return m?esc(m.name):'（削除済みの資材）';};
+  const dateTxt=e=>e?(e.date?e.date:esc(e.dateNote||'不明')):'不明';
+  const startOf=(i,mid)=>{ for(let j=i+1;j<log.length;j++){ if(log[j].toId===mid)return log[j]; } return null; };
+  const rows=[];
+  // いま使用中の資材（最後に切り替えた先）
+  const shown={};
+  log.forEach(e=>{ if(shown[e.toId]||!inBom[e.toId]||log.some((x,i)=>i<log.indexOf(e)&&x.fromId===e.toId))return; shown[e.toId]=1;
+    rows.push(`<tr style="background:#f0fdf4"><td class="l">${nm(e.toId)} <span class="tag arai">🟢 使用中</span></td><td class="l">${dateTxt(e)}</td><td class="l">使用中</td><td>${e.date?fmt(Math.round((new Date(S.settings.baseDate)-new Date(e.date))/86400000))+'日':'—'}</td><td class="l" colspan="5"></td></tr>`); });
+  log.forEach((e,i)=>{
+    const st=startOf(i,e.fromId);
+    const days=(st&&st.date&&e.date)?fmt(Math.round((new Date(e.date)-new Date(st.date))/86400000))+'日':'—';
+    const canReturn=!e.seed&&(e.skus||[]).some(s=>S.boms[s.key]&&Number(S.boms[s.key][e.toId]||0));
+    rows.push(`<tr><td class="l">${nm(e.fromId)}</td><td class="l">${dateTxt(st)}</td><td class="l">${dateTxt(e)}</td><td>${days}</td>
+      <td class="l">${e.seed?'記録なし':esc(SWITCH_REASONS[e.reason]||e.reason||'')}${e.memo?'<br><span class="muted" style="font-size:11px">'+esc(e.memo)+'</span>':''}</td>
+      <td>${e.fromStock!=null?fmt(e.fromStock):'—'}</td><td class="l">${nm(e.toId)}</td><td class="l">${esc(e.by||'')}</td>
+      <td class="l">${canReturn?'<button class="btn sec small" onclick="openSwitchReturn(\''+e.id+'\')">↩ 戻す</button>':''}</td></tr>`);
+  });
+  el.innerHTML=rows.join('')||'<tr><td class="l muted" colspan="9">まだ履歴はありません。</td></tr>';
 }
 // 名前で探す→無ければ作る
 function ensureMaterial(name,cat,unit){
@@ -1699,19 +1884,22 @@ function renderSwitch(){
     let qtyNote='';
     if(Number(m.switchAfterQty||0)>0){ const base=(m.switchQtyBase!=null?Number(m.switchQtyBase):Number(m.initStock||0));
       const used=Math.max(0,base-r.stock); qtyNote='<br><span class="muted" style="font-size:10px">使用 '+fmt(used)+' / '+fmt(m.switchAfterQty)+'枚</span>'; }
-    return `<tr${m.switched?' style="opacity:.5;background:#f6f8fa"':(r.switchDue?' style="background:#fff7ed"':'')}>
+    const waiting=(m.noReorder||m.nextMatId)&&!r.inUse;
+    const planTag=(r.inUse&&r.nextSet&&r.planDate)?' <span class="tag '+(r.switchDue?'tuki':'other')+'">'+(r.switchOverdue?'切替未完了':'切替予定')+' '+r.planDate.slice(5)+'</span>':(r.switchDue?' <span class="tag tuki">切替時期</span>':'');
+    return `<tr${waiting?' style="opacity:.6;background:#f6f8fa"':(r.switchDue?' style="background:#fff7ed"':'')}>
       <td class="l muted">${esc(m.cat||'')}</td>
-      <td class="l">${esc(m.name)}${m.noReorder?' <span class="tag other">発注しない</span>':''}${m.switched?' <span class="tag arai">✅ 切替済み</span>':(r.switchDue?' <span class="tag tuki">切替時期</span>':'')}</td>
+      <td class="l">${esc(m.name)}${m.noReorder?' <span class="tag other">発注しない</span>':''}${waiting?' <span class="tag other">⏸ 待機中</span>':''}${(r.inUse&&(m.noReorder||m.nextMatId))?' <span class="tag arai">🟢 使用中</span>':''}${planTag}</td>
       <td style="font-weight:700">${fmt(r.stock)}${m.stockAdj?' <span class="muted" style="font-size:10px" title="棚卸再確認で補正'+(m.stockAdjBy?(' / '+esc(m.stockAdjBy)):'')+'">✎</span>':''}</td>
       <td><input type="checkbox" ${m.noReorder?'checked':''} onchange="setMat('${m.id}','noReorder',this.checked?1:0);renderSwitch();recalcAll()" style="width:18px;height:18px"></td>
       <td class="l"><select style="width:180px" onchange="setMatNext('${m.id}',this.value)">${opts(m.nextMatId||'')}</select></td>
       <td class="l"><input type="date" value="${m.switchDate||''}" onchange="setMatSwitchDate('${m.id}',this.value)" style="width:140px"></td>
       <td><input class="cell" type="number" min="0" placeholder="枚数" value="${m.switchAfterQty||''}" onchange="setMatSwitchQty('${m.id}',this.value)">${qtyNote}</td>
-      <td class="l">${m.switched?'<span class="muted">✅ 切替済み</span> <button class="btn sec small" onclick="undoSwitched(\''+m.id+'\')">元に戻す</button> ':(nx?'<button class="btn warn small" onclick="switchToNext(\''+m.id+'\')">▶ 今すぐ '+esc(nx.name)+' に切替</button> ':'')}<button class="btn sec small" onclick="openCountDlg('${m.id}')">🔢在庫</button></td>
+      <td class="l">${(r.inUse&&nx)?'<button class="btn warn small" onclick="openSwitchDlg(\''+m.id+'\')">▶ 今すぐ '+esc(nx.name)+' に切替</button> ':''}<button class="btn sec small" onclick="openCountDlg('${m.id}')">🔢在庫</button></td>
     </tr>`;
   }).join('');
   const chain=S.materials.filter(m=>m.noReorder||m.nextMatId);
   document.getElementById('switchChainHint').textContent = chain.length? ('設定中の切替: '+chain.map(m=>m.name+(m.nextMatId&&matById(m.nextMatId)?(' → '+matById(m.nextMatId).name):'')).join('　／　')) : '';
+  renderSwitchLog();
 }
 
 /* =================== DIALOGS =================== */
@@ -1987,6 +2175,7 @@ function applyCloudState(cloudS,meta){
   S.settings.baseDate=todayStr();   // 基準日はPCごとに「今日」固定（クラウドの値では上書きしない）
   S.backups=keepBackups;
   S.funes=S.funes||{};S.orders=S.orders||[];S.stocktakes=S.stocktakes||[];S.boms=S.boms||{};
+  normSwitch();
   S.cloud={rev:Number(meta.rev)||0,savedAt:meta.savedAt||'',savedBy:meta.savedBy||''};
   cloudDirty=false; localStorage.setItem(LS,JSON.stringify(S)); initUI();
   setSyncStatus('🟢 同期中（rev'+S.cloud.rev+' '+(S.cloud.savedAt||'')+(S.cloud.savedBy?(' by '+S.cloud.savedBy):'')+'）','#137333');
