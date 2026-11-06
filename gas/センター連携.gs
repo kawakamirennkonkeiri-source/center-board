@@ -439,6 +439,9 @@ function getSummary_(params){
   var today = params && params.date ? parseParamDate_(params.date) : new Date();
   var out = { date: Utilities.formatDate(today, CFG.TZ, 'yyyy-MM-dd'), targetFunes: null, jisseki: { funes:null, kg:null, budomari:null }, orderTotalKg: null, orderKawakamiKg: null, orderBudomari: null, orderCsRate: null, orderKawakamiCsKg: null };
   try{ out.targetFunes = readOrderFunes_(today); }catch(e){ out.targetError = String(e); }
+  // 舟数モニターの「前日ストック」＝発注書「ｽﾄｯｸ舟数」列の前日の値（読み取り専用）
+  out.prevFuneStock = null; out.prevFuneStockDate = '';
+  try{ var ps = readOrderPrevStock_(today); out.prevFuneStock = ps.value; out.prevFuneStockDate = ps.date; }catch(e){ out.prevFuneStockError = String(e); }
   try{ out.jisseki = readJisseki_(today); }catch(e){ out.jissekiError = String(e); }
   // ★2026-10-15：「進捗」シートを3関数がそれぞれ getDataRange() で全範囲読み → summary だけで約70秒・bundle 約95秒になり、
   //   電子黒板の30秒更新（25秒で打ち切り）が毎回失敗＝進捗差分などが起動時の値のまま固まった。
@@ -514,6 +517,47 @@ function readOrderFunes_(today){
     }
   }
   return null;
+}
+// 発注書メインシートの「ｽﾄｯｸ舟数」列（見出しで自動検出）× 前日の行の値。読み取り専用。
+//   ・見出しは半角/全角カナ・改行・空白の違いを吸収して探す（列が増えてズレても追従）。
+//   ・前日の行が無い／空欄のときは最大7日さかのぼる（広島と同じ考え方）。
+//   ・戻り値 { value:数値 or null, date:'yyyy-MM-dd'（値を取った日） }
+function readOrderPrevStock_(today){
+  var out = { value:null, date:'' };
+  var sh = SpreadsheetApp.openById(CFG.ORDER_SS_ID).getSheetByName('発注書');
+  if(!sh) return out;
+  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  if(lastRow < 1 || lastCol < 1) return out;
+  var v = sh.getRange(1, 1, Math.min(15, lastRow), lastCol).getValues();
+  var col = -1;
+  for(var r=0; r<v.length && col<0; r++){
+    for(var c=0; c<v[r].length; c++){
+      if(String(v[r][c]==null?'':v[r][c]).normalize('NFKC').replace(/\s/g,'').indexOf('ストック舟数') >= 0){ col = c; break; }
+    }
+  }
+  if(col < 0) return out;
+
+  var colB = sh.getRange(1, 2, lastRow, 1).getValues();
+  var colS = sh.getRange(1, col+1, lastRow, 1).getValues();
+  var rowOf = {};
+  for(var i=0; i<colB.length; i++){
+    var b = colB[i][0];
+    if(b instanceof Date){
+      var key = Utilities.formatDate(b, CFG.TZ, 'yyyy-MM-dd');
+      if(!(key in rowOf)) rowOf[key] = i;
+    }
+  }
+  for(var k=1; k<=7; k++){
+    var ds = Utilities.formatDate(new Date(today.getTime() - k*86400000), CFG.TZ, 'yyyy-MM-dd');
+    if(!(ds in rowOf)) continue;
+    var val = colS[rowOf[ds]][0];
+    if(val === '' || val == null) continue;
+    var n = (typeof val === 'number') ? val : Number(String(val).replace(/[^0-9.\-]/g,''));
+    if(isNaN(n)) return out;
+    out.value = n; out.date = ds;
+    return out;
+  }
+  return out;
 }
 // 発注書「進捗」シートの「合計kg数」「カワカミ荷造数」「歩留まり」列（見出しで自動検出・列固定しない）
 //   × A列が今日の行の値。

@@ -1087,7 +1087,7 @@
         <div class="fn-cell stock">
           <div class="ch">前日ストック</div>
           <div class="cv"><input id="fn-stock" type="number" min="0" step="1" inputmode="numeric" value="0"></div>
-          <span class="edit-mark">✎ 手入力</span>
+          <span class="edit-mark" id="fn-stock-mark">✎ 手入力</span>
         </div>
         <div class="fn-op">＋</div>
         <div class="fn-cell hori">
@@ -2009,8 +2009,9 @@
       if(typeof updateJissekiFromOps==='function') updateJissekiFromOps();
     }
     // ⑨ 舟数モニター：前日ストック／生産者予定
-    if(day.funeStock && day.funeStock[dk]!=null){
-      try{ localStorage.setItem('fn_stock_'+dk, String(Number(day.funeStock[dk])||0)); }catch(e){}
+    if(day.funeStock){   // 他のPCで手入力を消した（＝発注書の自動に戻した）場合も反映する
+      if(day.funeStock[dk]!=null){ try{ localStorage.setItem('fn_stock_'+dk, String(Number(day.funeStock[dk])||0)); }catch(e){} }
+      else { try{ localStorage.removeItem('fn_stock_'+dk); }catch(e){} }
       if(typeof fnRender==='function') fnRender();
     }
     if(day.seisanPlan && day.seisanPlan[dk]!=null){
@@ -2779,19 +2780,40 @@
      圃場（畑）と生産者から持ってきた「いまの舟数」を、遠くからでも読める大きさで出すシート。
        本日目標舟数 ＝ 発注書（または当日の数量変更） ＋ 生産者予定
        現在合計舟数 ＝ 前日ストック ＋ 現在掘り数（圃場タブの合計） ＋ 生産者（生産者タブの収穫舟数合計）
-     ・前日ストック／生産者予定 は手入力（当日限り）。localStorage＋クラウド(day)で全PC共有。
+     ・前日ストック＝発注書「ｽﾄｯｸ舟数」列の前日の値を自動表示（GAS summary.prevFuneStock）。手入力すると当日だけ上書き、空欄で自動に戻る。
+     ・生産者予定 は手入力（当日限り）。どちらの手入力も localStorage＋クラウド(day)で全PC共有。
      ・現在掘り数／生産者 は圃場タブ・生産者タブの入力から自動。ここでは編集しない。 */
   function fnDateKey_(){ var t=new Date(); return t.getFullYear()+'-'+(t.getMonth()+1)+'-'+t.getDate(); }
   function fnStockKey_(){ return 'fn_stock_' + fnDateKey_(); }
   function fnPlanKey_(){  return 'fn_seisan_plan_' + fnDateKey_(); }
-  function fnGetStock_(){ try{ var v=localStorage.getItem(fnStockKey_()); return (v!=null && v!=='') ? (Number(v)||0) : 0; }catch(e){ return 0; } }
+  // 当日の手入力（無ければ null）
+  function fnGetStockOvr_(){ try{ var v=localStorage.getItem(fnStockKey_()); return (v!=null && v!=='') ? (Number(v)||0) : null; }catch(e){ return null; } }
+  // 発注書の前日ｽﾄｯｸ舟数（未取得・古いGASなら null）
+  function fnGetStockAuto_(){ return (typeof boardData==='object' && typeof boardData.prevFuneStock==='number') ? boardData.prevFuneStock : null; }
+  function fnGetStock_(){ var o=fnGetStockOvr_(); if(o!=null) return o; var a=fnGetStockAuto_(); return a!=null ? a : 0; }
   // 生産者予定：未入力なら null（＝実績をそのまま予定として使う）
   function fnGetSeisanPlan_(){ try{ var v=localStorage.getItem(fnPlanKey_()); return (v!=null && v!=='') ? (Number(v)||0) : null; }catch(e){ return null; } }
   function fnSetStock(raw){
-    var n = Math.max(0, Math.round(Number(raw)||0));
-    try{ localStorage.setItem(fnStockKey_(), String(n)); }catch(e){}
-    if(typeof nzDaySetFuneStock_==='function') nzDaySetFuneStock_(n);   // ★ 全PC共有（クラウド）へ
+    var s = String(raw==null?'':raw).trim();
+    var n = Math.max(0, Math.round(Number(s)||0));
+    if(s==='' || n===fnGetStockAuto_()){   // 空欄、または発注書と同じ数字＝手入力なし（発注書の自動に戻す）
+      try{ localStorage.removeItem(fnStockKey_()); }catch(e){}
+      if(typeof nzDaySetFuneStock_==='function') nzDaySetFuneStock_(null);
+    } else {
+      try{ localStorage.setItem(fnStockKey_(), String(n)); }catch(e){}
+      if(typeof nzDaySetFuneStock_==='function') nzDaySetFuneStock_(n);   // ★ 全PC共有（クラウド）へ
+    }
     fnRender();
+  }
+  // 「前日ストック」の下の説明：発注書から自動か、当日の手入力か
+  function fnStockMark_(){
+    var e=document.getElementById('fn-stock-mark'); if(!e) return;
+    var a=fnGetStockAuto_(), o=fnGetStockOvr_();
+    var m=/^\d{4}-(\d{2})-(\d{2})$/.exec(String((typeof boardData==='object' && boardData.prevFuneStockDate)||''));
+    var d=m ? (Number(m[1])+'/'+Number(m[2])) : '';
+    if(a==null) e.textContent='✎ 手入力';
+    else if(o!=null) e.textContent='✎ 手入力中（発注書 '+d+' は '+fnNum_(a)+'・空欄で自動に戻す）';
+    else e.textContent='📋 発注書 '+d+' から自動';
   }
   function fnSetSeisanPlan(raw){
     var s = String(raw==null?'':raw).trim();
@@ -2827,6 +2849,7 @@
     haichiSetText_('fn-hori', fnNum_(hori));
     haichiSetText_('fn-sei',  fnNum_(sei));
     fnPutInput_('fn-stock', stock);
+    fnStockMark_();
     fnPutInput_('fn-seiyo', plan);
 
     // のこり舟数＋進み具合のバー（目標が未取得のときは出さない）
@@ -3205,6 +3228,9 @@
     var ovr = qtyLoadOverride();                          // ② 当日の数量変更（あれば発注書予定を上書き）
     boardData.targetOverride = ovr;
     boardData.targetFunes = (ovr != null) ? ovr : boardData.serverTarget;
+    boardData.prevFuneStock = (typeof s.prevFuneStock === 'number') ? s.prevFuneStock : null;   // ⑨ 舟数モニターの前日ストック（発注書「ｽﾄｯｸ舟数」列）
+    boardData.prevFuneStockDate = s.prevFuneStockDate || '';
+    if(typeof fnRender==='function') fnRender();
     var j = s.jisseki || {};
     boardData.jissekiFunes = (typeof j.funes === 'number') ? j.funes : null;
     boardData.orderTotalKg    = (typeof s.orderTotalKg === 'number')    ? s.orderTotalKg    : null;
