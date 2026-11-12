@@ -3320,9 +3320,14 @@
   }
   function opsTodayMadeKg(){ return opsTodayMadeKgParts().kg; }   // 互換：荷造りkg（CSを除く）
   // ④ 本日実績の荷造り舟数＝圃場から持ってきた舟数だけ（生産者の収穫舟数は実績に含めない）
-  function jissekiFunesNow(){ return opsTodayHojoFunes(); }
+  //   ★2026-11-12〜 発注書「荷造り舟数」列の今日の値をそのまま出す（曽我さん依頼）。
+  //     数量変更の上書きは使わない（serverTarget＝発注書の生の値）。取得できない時だけ従来どおり圃場の合計。
+  function jissekiFunesNow(){
+    var v = (typeof boardData==='object') ? boardData.serverTarget : null;
+    return (typeof v === 'number') ? v : opsTodayHojoFunes();
+  }
   function updateJissekiFromOps(){
-    var funes = jissekiFunesNow();          // 荷造り舟数（実績）＝圃場から持ってきた舟数
+    var funes = jissekiFunesNow();          // 荷造り舟数（実績）＝発注書「荷造り舟数」（取れない時は圃場の合計）
     var p     = opsTodayMadeKgParts();      // { all:全荷造りkg, cs:CSキロ, kg:荷造りkg（CS除く） }
     // 2026-09-03：荷造りCS㎏は発注書「進捗」シートの「カワカミ荷造数」欄（C/S×重さの内訳を掛け算した合計㎏）
     //   から自動反映する（曽我さん依頼。以前は本日荷造りのカード入力を積み上げた値=p.csを使っていた）。
