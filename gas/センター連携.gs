@@ -21,7 +21,8 @@ var CFG = {
 
   // 本日の舟数は、発注書「発注書」シートの“この見出しの列”から取る（取引先が増えて列がズレても見出しで探す）。
   //   列を固定(DH等)にすると取引先追加でズレるため、見出し名で列を自動検出する。名前を変えたらここを直す。
-  ORDER_FUNES_HEADER: '収穫舟数',
+  // 2026-11-12〜「収穫舟数」→「荷造り舟数」（曽我さん依頼：本日の目標舟数＝発注書の荷造り舟数＋生産者）
+  ORDER_FUNES_HEADER: '荷造り舟数',
 
   // ② 本日荷造りの「荷造数（作った分）」を書き込む“テスト用”生産ログ（力量表SS内・自動作成）。
   //    ★荷造数は「作った日（生産日）」ごとに1行。進捗シート側は各日の行で数式集計する。
@@ -131,7 +132,7 @@ function doGet(e){
     else if(type === 'nizukuriSave') out = saveNizukuri_(e.parameter);   // ② 本日荷造りの前日/本日入力→テスト用進捗シートへ記録（力量表SS・既存シートは触らない）
     else if(type === 'nizukuriProgress') out = getNizukuriProgress_(e.parameter); // ② テスト用進捗シートの保存済み値を返す（前日/本日の復元用）
     else if(type === 'savePosition') out = savePosition_(e.parameter);   // 配置図→ポジション履歴に保存（書き込み）
-    else if(type === 'summary')  out = getSummary_(e.parameter);         // 本日の舟数(発注書「収穫舟数」列・見出しで検出)＋実績(力量表「実績」シート)
+    else if(type === 'summary')  out = getSummary_(e.parameter);         // 本日の舟数(発注書「荷造り舟数」列・見出しで検出)＋実績(力量表「実績」シート)
     else if(type === 'hojoGet')  out = hojoGet_(e.parameter);            // ⑥ 圃場（畑）舟数：指定日の記録を返す
     else if(type === 'seisanGet') out = seisanGet_(e.parameter);         // ⑥ 生産者：指定日の持ち込み舟数・出来高を返す
     else if(type === 'haichiCfgGet') out = getHaichiCfg_();               // ① 配置図の設定（ゾーン/優先番号/手動配置）をクラウドから読む＝全PC共有
@@ -431,9 +432,9 @@ function getShizaiBackup_(params){
 function testShizaiBackup(){ Logger.log(JSON.stringify(getShizaiBackupList_(), null, 2)); }
 
 // ============================================================
-// 本日サマリ：本日舟数（発注書「発注書」の“収穫舟数”列・見出しで検出・今日の行）＋実績（力量表「実績」シート・今日の行）
+// 本日サマリ：本日舟数（発注書「発注書」の“荷造り舟数”列・見出しで検出・今日の行）＋実績（力量表「実績」シート・今日の行）
 //   ?type=summary → { date, targetFunes, jisseki:{funes,kg,budomari} }
-//   ※targetFunes＝発注書の「収穫舟数」列の今日の値（列位置は固定せず見出しで探す＝取引先が増えてもズレない）
+//   ※targetFunes＝発注書の「荷造り舟数」列の今日の値（列位置は固定せず見出しで探す＝取引先が増えてもズレない）
 // ============================================================
 function getSummary_(params){
   var today = params && params.date ? parseParamDate_(params.date) : new Date();
@@ -484,9 +485,10 @@ function progressCtx_(today){
 }
 // ctx が無い（単独呼び出し）ときは作る。
 function progressCtxOf_(today, ctx){ return ctx || progressCtx_(today); }
-// 発注書メインシートの「収穫舟数」列（見出しで自動検出）× 日付(B列)が今日の行の値。
-//   ・列は固定しない：取引先が増えて列がズレても、見出し名（CFG.ORDER_FUNES_HEADER＝既定「収穫舟数」）で列を探す。
-//   ・見出しは改行・空白があってもOK（除去して部分一致で判定）。上から15行を走査。
+// 発注書メインシートの「荷造り舟数」列（見出しで自動検出）× 日付(B列)が今日の行の値。
+//   ★2026-11-12〜 「収穫舟数」列(DM)から「荷造り舟数」列(DN)へ変更（11/12時点 収穫160・荷造り155）。
+//   ・列は固定しない：取引先が増えて列がズレても、見出し名（CFG.ORDER_FUNES_HEADER）で列を探す。
+//   ・見出しは改行・空白・半角/全角があってもOK（NFKC＋空白除去）。まず完全一致、無ければ部分一致。上から15行を走査。
 function readOrderFunes_(today){
   var sh = SpreadsheetApp.openById(CFG.ORDER_SS_ID).getSheetByName('発注書');
   if(!sh) return null;
@@ -494,15 +496,19 @@ function readOrderFunes_(today){
   var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
   if(lastRow < 1 || lastCol < 1) return null;
   var v = sh.getRange(1, 1, Math.min(15, lastRow), lastCol).getValues();
-  var want = String(CFG.ORDER_FUNES_HEADER || '収穫舟数').replace(/\s|　/g,'');
+  var norm = function(x){ return String(x==null?'':x).normalize('NFKC').replace(/\s/g,''); };
+  var want = norm(CFG.ORDER_FUNES_HEADER || '荷造り舟数');
 
-  // ① 「収穫舟数」の見出しがある列を探す
-  var col = -1;
+  // ① 見出しがある列を探す（完全一致を優先＝「生産者荷造…」などの似た見出しを拾わない）
+  var col = -1, colPart = -1;
   for(var r=0; r<v.length && col<0; r++){
     for(var c=0; c<v[r].length; c++){
-      if(String(v[r][c]==null?'':v[r][c]).replace(/\s|　/g,'').indexOf(want) >= 0){ col = c; break; }
+      var h = norm(v[r][c]);
+      if(h === want){ col = c; break; }
+      if(colPart < 0 && h.indexOf(want) >= 0) colPart = c;
     }
   }
+  if(col < 0) col = colPart;
   if(col < 0) return null;   // 見出しが見つからない（名前が変わったら CFG.ORDER_FUNES_HEADER を直す）
 
   // ② 今日の行（B列＝日付）を探して、その列の値を返す
@@ -2656,7 +2662,7 @@ function showDebug(){
 function testShift(){    Logger.log(JSON.stringify(getShift_(),    null, 2)); }
 function testHaichi(){   Logger.log(JSON.stringify(getHaichi_(),   null, 2)); }
 function testNizukuri(){ Logger.log(JSON.stringify(getNizukuri_(), null, 2)); }
-function testSummary(){  Logger.log(JSON.stringify(getSummary_({}), null, 2)); }   // 本日舟数(発注書「収穫舟数」列)＋実績(実績シート)を確認
+function testSummary(){  Logger.log(JSON.stringify(getSummary_({}), null, 2)); }   // 本日舟数(発注書「荷造り舟数」列)＋実績(実績シート)を確認
 // 資材管理アプリ用：期間を指定して各SKUの荷造数合計を確認（8/3〜8/6の例）
 function testShizaiUsage(){ Logger.log(JSON.stringify(getShizaiUsage_({ start:'2026-08-03', end:'2026-08-06' }), null, 2)); }
 

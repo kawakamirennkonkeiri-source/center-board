@@ -804,7 +804,7 @@
           <input type="number" id="qty-input" min="0" step="1"> 舟 <button onclick="qtyApply()">再計算</button>
           <button class="ghost" onclick="qtyToggleEdit()">閉じる</button>
         </div>
-        <div class="sub" id="t-target-sub">発注書より（本日の総舟数）</div>
+        <div class="sub" id="t-target-sub">発注書「荷造り舟数」＋生産者</div>
       </div>
       <div class="target-cell">
         <div class="lbl">荷造りkg（予定）</div>
@@ -1112,7 +1112,7 @@
 
       <div class="fn-foot">
         <button class="fn-kiosk-btn" onclick="fnKiosk(true)">⛶ 大画面モード（ヘッダーとタブを隠す）</button>
-        <span>本日目標舟数＝発注書（または数量変更）＋ 生産者予定　／　現在合計舟数＝前日ストック＋現在掘り数＋生産者</span>
+        <span>本日目標舟数＝発注書「荷造り舟数」（または数量変更）＋ 生産者予定　／　現在合計舟数＝前日ストック＋現在掘り数＋生産者</span>
         <span class="fn-status" id="fn-status"></span>
       </div>
     </div>
@@ -2778,7 +2778,7 @@
 
   /* ===== ⑨ 舟数モニター（もう1台の液晶用） =====
      圃場（畑）と生産者から持ってきた「いまの舟数」を、遠くからでも読める大きさで出すシート。
-       本日目標舟数 ＝ 発注書（または当日の数量変更） ＋ 生産者予定
+       本日目標舟数 ＝ 発注書「荷造り舟数」（または当日の数量変更） ＋ 生産者予定（2026-11-12〜 収穫舟数→荷造り舟数）
        現在合計舟数 ＝ 前日ストック ＋ 現在掘り数（圃場タブの合計） ＋ 生産者（生産者タブの収穫舟数合計）
      ・前日ストック＝発注書「ｽﾄｯｸ舟数」列の前日の値を自動表示（GAS summary.prevFuneStock）。手入力すると当日だけ上書き、空欄で自動に戻る。
      ・生産者予定 は手入力（当日限り）。どちらの手入力も localStorage＋クラウド(day)で全PC共有。
@@ -3217,7 +3217,7 @@
     haichiCalcFinish();
   }
 
-  // ②③ 本日サマリ：本日の荷造り舟数(発注書の「収穫舟数」列・見出しで検出→列がズレても追従)・実績(舟数/kg/歩留まり=力量表「実績」)・終了目標時刻
+  // ②③ 本日サマリ：本日の荷造り舟数(発注書の「荷造り舟数」列・見出しで検出→列がズレても追従)・実績(舟数/kg/歩留まり=力量表「実績」)・終了目標時刻
   var boardData = { targetFunes:null, jissekiFunes:null, jissekiKg:null, jissekiBudomari:null, orderTotalKg:null, orderKawakamiKg:null, orderBudomari:null, orderCsRate:null, orderKawakamiCsKg:null, hatsuri:0, attendNow:0, serverTarget:null, targetOverride:null };
   var ORDER_PROGRESS_BY_CLIENT = {};   // 🔍 進捗差分（取引先ごと）：発注書「進捗」シート5行目「荷造数」の取引先別合計(c/s)
   function haichiNum_(n, d){ if(n==null || isNaN(n)) return '--'; return Number(n).toLocaleString('ja-JP', {maximumFractionDigits: d||0}); }
@@ -3241,7 +3241,7 @@
     ORDER_PROGRESS_BY_CLIENT  = (s.orderProgressByClient && typeof s.orderProgressByClient === 'object') ? s.orderProgressByClient : {};
     if(typeof renderSkuDiff === 'function') renderSkuDiff();   // 🔍 進捗差分（取引先ごと）も新しい値で再計算
     // 上段（予測・予定）：本日の荷造り舟数（＝発注書 or 数量変更 ＋ 生産者の収穫舟数）
-    haichiSetText_('t-target-sub', ovr!=null ? '当日変更（発注書の予定を上書き）' : '発注書より（本日の総舟数）');
+    haichiSetText_('t-target-sub', ovr!=null ? '当日変更（発注書の予定を上書き）' : '発注書「荷造り舟数」＋生産者');
     haichiRefreshTargets_();   // t-target-funes と 荷造りkg（予定）を生産者舟数込みで再計算
     // 下段（本日実績・現時点）は 圃場舟数＋本日荷造りの作った分 から自動計算（updateJissekiFromOps）
     updateJissekiFromOps();
