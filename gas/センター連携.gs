@@ -1181,7 +1181,9 @@ function getBundle_(params){
     haichi:        safe(function(){ return getHaichi_(); }),
     shift:         safe(function(){ return getShift_(); }),
     haichiCfg:     safe(function(){ return getHaichiCfg_(); }),
-    summary:       safe(function(){ return getSummary_(params); }),
+    // ★2026-11-23：params.date は本日荷造りの「表示する日」。サマリ（本日の舟数など）は常に今日で読む
+    //   （以前は表示日の荷造り舟数が「本日」に出ていた＝11/23に11/24の180舟が出た）。
+    summary:       safe(function(){ return getSummary_({}); }),
     hojo:          safe(function(){ return hojoGet_({ date: hdate }); }),
     seisan:        safe(function(){ return seisanGet_({ date: hdate }); }),
     todo:          safe(function(){ return getTodoBoard_(today); })
